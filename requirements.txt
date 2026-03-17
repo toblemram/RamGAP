@@ -1,0 +1,16 @@
+# RamGAP Dependencies
+# Backend
+flask>=2.3.0
+flask-cors>=4.0.0
+sqlalchemy>=2.0.0
+
+# Frontend
+streamlit>=1.28.0
+requests>=2.31.0
+
+# Database - Azure SQL (for later migration)
+# pyodbc>=4.0.0
+# azure-identity>=1.14.0
+
+# Development
+python-dotenv>=1.0.0
