@@ -1,0 +1,41 @@
+{
+  "id": "tunnel.addsubcurve",
+  "object": "tunnel.crosssection",
+  "method": "addsubcurve",
+  "synopsis": "Legger til en eller flere subkurver (subsections) i et tunnel-tverrsnitt.",
+  "signature_variants": [
+    {
+      "args": [],
+      "returns": "SubsectionPolycurve, Segment"
+    },
+    {
+      "args": ["type:str", "param1", "param2", "..."],
+      "returns": "SubsectionPolycurve, Segment"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "Et tunnelobjekt må være opprettet"
+  ],
+  "minimal_examples": [
+    "tunnel = g.tunnel(6, 2)\nsubsection, segment = tunnel.CrossSection.addsubcurve()",
+    "tunnel = g.tunnel(0, 0)\nsubsection, segment = tunnel.CrossSection.addsubcurve(\"Line\", 2, 3, 180, 1)",
+    "tunnel = g.tunnel(1, 1)\nsubsection, segment = tunnel.CrossSection.addsubcurve(\"Arc\", 2, 3, 0, 90, 1)"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Sjekk at du bruker g, ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Pass på at parametrene stemmer med valgt kurvetype ('Line', 'Arc')."
+    }
+  ],
+  "aliases": [
+    "add subcurve",
+    "legg til subkurve",
+    "subsection polycurve",
+    "tunnel cross section add curve"
+  ]
+}

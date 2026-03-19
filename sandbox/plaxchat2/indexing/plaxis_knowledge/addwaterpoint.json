@@ -1,0 +1,35 @@
+{
+  "id": "waterlevel.addwaterpoint",
+  "object": "waterlevel",
+  "method": "addwaterpoint",
+  "synopsis": "Legger til et nytt vannpunkt i et eksisterende vannivå.",
+  "signature_variants": [
+    {
+      "args": ["(x:float, y:float)", "pinc:float"],
+      "returns": "OK"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "Et polygon må være opprettet for å definere geometri",
+    "Et vannivå må eksistere"
+  ],
+  "minimal_examples": [
+    "g.polygon((0, 0), (0, 5), (5, 5), (5, 0))\ng.gotoflow()\nwaterlevel = g.waterlevel((1, 2), (2, 2))\nwaterlevel.addwaterpoint((3, 3), -5)"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Sjekk at du bruker g, ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Sørg for å sende inn en koordinat-tuple og en float-verdi for pinc."
+    }
+  ],
+  "aliases": [
+    "add water point",
+    "legg til vannpunkt",
+    "water level add point"
+  ]
+}

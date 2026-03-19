@@ -1,0 +1,42 @@
+{
+  "id": "general.apply",
+  "object": "general",
+  "method": "apply",
+  "synopsis": "Kjører en kommando på flere objekter samtidig. Hver kommando blir en undo-bar handling.",
+  "signature_variants": [
+    {
+      "args": ["objects:list[PlaxisObject]", "command:str", "...params"],
+      "returns": "OK | list"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "En eller flere gyldige PLAXIS-objekter må være opprettet"
+  ],
+  "minimal_examples": [
+    "p1, p2, p3 = g.point((6, 4), (9, 8), (4, 1))\npoints = g.Points\ng.apply(points, \"echo\")",
+    "p1, p2, p3 = g.point((6, 4), (9, 8), (4, 1))\npoints = g.Points\ng.apply(points, \"setproperties\", \"x\", 3)",
+    "g.clear()\ng.polygon((0, 0), (0, 5), (5, 5), (5, 0))\ng.gotostages()\nphases = g.Phases\ng.apply(phases, \"setproperties\", \"MaxCores\", 4)",
+    "g.gotostructures()\nline1 = g.line((0, 2), (-5, 2))[-1]\nline2 = g.line((1, 2), \"relative\", (3, 4))[-1]\ng.n2nanchor(line1, line2)\ng.gotostages()\nphases = g.Phases\nanchors = g.NodeToNodeAnchors\ng.apply(anchors, \"sps\", \"AdjustPrestress\", phases[1], True)"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Sjekk at du bruker g, ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Sjekk at du sender en liste av PLAXIS-objekter som første parameter."
+    },
+    {
+      "msg_contains": "Unknown property",
+      "hint": "Sørg for at kommandoen og parameterne finnes for de valgte objektene."
+    }
+  ],
+  "aliases": [
+    "apply command",
+    "kjør kommando på flere objekter",
+    "batch apply",
+    "apply properties"
+  ]
+}

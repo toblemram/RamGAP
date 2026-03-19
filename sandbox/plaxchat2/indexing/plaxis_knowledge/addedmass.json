@@ -1,0 +1,65 @@
+{
+  "id": "geometry.addedmass",
+  "object": "geometry",
+  "method": "addedmass",
+  "synopsis": "Legger til Westergaard AddedMass-funksjoner på linjer eller genererte linjer i geometrien.",
+  "signature_variants": [
+    {
+      "args": ["line:Line", "..."],
+      "returns": "AddedMass | list[AddedMass]"
+    },
+    {
+      "args": ["point1:Point", "point2:Point"],
+      "returns": "AddedMass"
+    },
+    {
+      "args": ["x:float", "y:float", "mode:(relative|absolute|angles)", "..."],
+      "returns": "list[AddedMass]"
+    },
+    {
+      "args": ["line:Line", "orientation:str", "factor:float"],
+      "returns": "AddedMass"
+    },
+    {
+      "args": ["point1:Point", "point2:Point", "orientation:str", "factor:float"],
+      "returns": "AddedMass"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "Linjer eller punkter må eksistere, eller opprettes i samme kall"
+  ],
+  "minimal_examples": [
+    "line = g.line((2, 2), (3, 3))[-1]\naddedmass = g.addedmass(line)",
+    "line1 = g.line((0, 2), (2, 2))[-1]\nline2 = g.line((2, 2), (2, 0))[-1]\naddedmasses = g.addedmass(line1, line2)",
+    "point = g.point(0, 0)\naddedmass = g.addedmass(point, (5, 6))[-1]",
+    "points = g.point((1, 1), (1, 4))\nline, addedmass = g.addedmass(points[-2], points[-1])",
+    "addedmass = g.addedmass((5, 5), (5, 2))[-1]",
+    "points = g.point((1, 1), (4, 4))\nres = g.addedmass(points[-2], (2, 3), points[-1])\naddedmasses = [item for item in res if item._plx_type == 'AddedMass']",
+    "addedmass = g.addedmass((1, 2), \"relative\", (3, 4))[-1]",
+    "res = g.addedmass((1, 2), \"relative\", (3, 4), (-5, -9), \"angles\", 30, 16)\naddedmasses = [item for item in res if item._plx_type == 'AddedMass']",
+    "res = g.addedmass((1, 2), \"angles\", 45, 10, \"absolute\", (4, 5))\naddedmasses = [item for item in res if item._plx_type == 'AddedMass']",
+    "line = g.line((2, 2), (3, 3))[-1]\naddedmass = g.addedmass(line, \"PositiveWBL\", 1.2)",
+    "line1 = g.line((2, 4), (3, 4))[-1]\nline2 = g.line((0, 2), (1, 2))[-1]\naddedmasses = g.addedmass(line1, line2, \"NegativeWBL\", 1.2)",
+    "point = g.point(1, 1)\naddedmass = g.addedmass(point, (5, 6), \"PositiveWBL\", 1.2)[-1]",
+    "p1, p2 = g.point((1, 1), (8, 9))\nres = g.addedmass(p1, (5.1, 6.4), p2, \"NegativeWBL\", 1.2)\naddedmasses = [item for item in res if item._plx_type == 'AddedMass']",
+    "addedmass = g.addedmass((1, 2), \"relative\", (3, 4), \"PositiveWBL\", 1.2)[-1]"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "TypeError",
+      "hint": "Sjekk at du gir riktige argumenter (punkt, linje eller koordinater)."
+    },
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Bruk g i stedet for g_i."
+    }
+  ],
+  "aliases": [
+    "add addedmass",
+    "legg til added mass",
+    "westergaard addedmass",
+    "added mass feature",
+    "addedmass linje"
+  ]
+}

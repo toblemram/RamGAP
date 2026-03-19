@@ -1,46 +1,48 @@
 # -*- coding: utf-8 -*-
 """
-RamGAP Streamlit Frontend
-User interface for RamGAP application
+RamGAP Frontend - Main Entry Point
+====================================
+Home page, project list, project view, and project setup.
+Plaxis automation (pages/plaxis.py) and GeoTolk (pages/geotolk.py)
+are separate pages, navigated to via st.switch_page().
 """
 
-import streamlit as st
-import requests
+import sys
 import os
-from datetime import datetime
+import streamlit as st
 
-# Page config - må være først
+# Ensure frontend/ root is importable from both app.py and pages/
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+from components.api_client import APIClient
+
+# Page config — must be the first Streamlit call
 st.set_page_config(
     page_title="RamGAP",
     page_icon="🏗️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# Configuration
-BACKEND_URL = "http://localhost:5050"
 
-# Get Windows username
-def get_username():
-    """Get the current Windows username"""
+def _get_username() -> str:
     try:
         return os.getlogin()
     except OSError:
-        return os.environ.get('USERNAME', os.environ.get('USER', 'Ukjent'))
+        return os.environ.get("USERNAME", os.environ.get("USER", "User"))
 
-USERNAME = get_username()
 
-# Page configuration
-st.set_page_config(
-    page_title="RamGAP",
-    page_icon="🔧",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+USERNAME = _get_username()
+api = APIClient()
 
 # Custom CSS
 st.markdown("""
 <style>
+    /* Hide Streamlit's auto-generated pages navigation */
+    [data-testid="stSidebarNav"] { display: none !important; }
+
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -51,163 +53,48 @@ st.markdown("""
     .greeting {
         font-size: 1.8rem;
         color: #333;
-        margin-bottom: 1rem;
-    }
-    .status-box {
-        padding: 2rem;
-        border-radius: 10px;
-        background-color: #E3F2FD;
-        text-align: center;
-        margin: 2rem 0;
-    }
-    .status-text {
-        font-size: 1.5rem;
-        color: #1565C0;
-        font-weight: 500;
-    }
-    .project-card {
-        padding: 1rem;
-        border-radius: 8px;
-        background-color: #f8f9fa;
-        border-left: 4px solid #1E88E5;
         margin-bottom: 0.5rem;
     }
+    .project-shortcut {
+        padding: 1rem 1.2rem;
+        border-radius: 10px;
+        background-color: #f0f4ff;
+        border-left: 5px solid #1E88E5;
+        margin-bottom: 0.6rem;
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+    .project-shortcut:hover { background-color: #dce8ff; }
+    .project-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1E88E5;
+    }
+    .project-desc {
+        font-size: 0.85rem;
+        color: #666;
+        margin-top: 2px;
+    }
     .activity-item {
-        padding: 0.5rem;
+        padding: 0.5rem 0;
         border-bottom: 1px solid #eee;
     }
 </style>
 """, unsafe_allow_html=True)
 
 
-@st.cache_data(ttl=30)  # Cache i 30 sekunder
-def check_backend_health():
-    """Check if backend is running"""
-    try:
-        response = requests.get(f"{BACKEND_URL}/api/health", timeout=1)
-        return response.status_code == 200
-    except requests.exceptions.RequestException:
-        return False
+@st.cache_data(ttl=5)
+def _cached_calculations(project_id, limit):
+    return api.get_plaxis_calculations(project_id=project_id, limit=limit)
 
 
-@st.cache_data(ttl=10)  # Cache i 10 sekunder
-def get_user_projects_cached(username):
-    """Get projects for current user"""
-    try:
-        response = requests.get(
-            f"{BACKEND_URL}/api/projects",
-            params={'username': username},
-            timeout=3
-        )
-        if response.status_code == 200:
-            return response.json().get('projects', [])
-    except requests.exceptions.RequestException:
-        pass
-    return []
+def _log_project(project_id: int, atype: str, aname: str):
+    _cached_calculations.clear()
+    api.log_project_activity(project_id, USERNAME, atype, aname)
 
 
-def get_user_projects():
-    """Wrapper for cached function"""
-    return get_user_projects_cached(USERNAME)
-
-
-@st.cache_data(ttl=10)  # Cache i 10 sekunder
-def get_recent_activity_cached(username):
-    """Get recent activity for current user"""
-    try:
-        response = requests.get(
-            f"{BACKEND_URL}/api/activity",
-            params={'username': username, 'limit': 5},
-            timeout=3
-        )
-        if response.status_code == 200:
-            return response.json().get('activities', [])
-    except requests.exceptions.RequestException:
-        pass
-    return []
-
-
-def get_recent_activity():
-    """Wrapper for cached function"""
-    return get_recent_activity_cached(USERNAME)
-
-
-@st.cache_data(ttl=5)  # Cache i 5 sekunder
-def get_plaxis_calculations_cached(project_id=None, limit=10):
-    """Get Plaxis calculations, optionally filtered by project"""
-    try:
-        params = {'limit': limit}
-        if project_id:
-            params['project_id'] = project_id
-        
-        response = requests.get(
-            f"{BACKEND_URL}/api/plaxis/calculations",
-            params=params,
-            timeout=3
-        )
-        if response.status_code == 200:
-            return response.json().get('calculations', [])
-    except requests.exceptions.RequestException:
-        pass
-    return []
-
-
-def get_plaxis_calculations(project_id=None, limit=10):
-    """Wrapper for cached function"""
-    return get_plaxis_calculations_cached(project_id, limit)
-
-
-def rerun_plaxis_calculation(calc_id, input_password, output_password=None):
-    """Re-run a previous Plaxis calculation"""
-    try:
-        response = requests.post(
-            f"{BACKEND_URL}/api/plaxis/calculations/{calc_id}/rerun",
-            json={
-                'session_id': USERNAME,
-                'input_password': input_password,
-                'output_password': output_password or input_password
-            },
-            timeout=300
-        )
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        return {'success': False, 'error': str(e)}
-
-
-def create_project(name, description, allowed_users):
-    """Create a new project"""
-    # Clear project cache when creating new
-    get_user_projects_cached.clear()
-    try:
-        response = requests.post(
-            f"{BACKEND_URL}/api/projects",
-            json={
-                'name': name,
-                'description': description,
-                'created_by': USERNAME,
-                'allowed_users': allowed_users
-            },
-            timeout=3
-        )
-        return response.status_code == 201, response.json()
-    except requests.exceptions.RequestException as e:
-        return False, {'error': str(e)}
-
-
-def log_activity(activity_type, activity_name):
-    """Log user activity"""
-    try:
-        requests.post(
-            f"{BACKEND_URL}/api/activity",
-            json={
-                'username': USERNAME,
-                'activity_type': activity_type,
-                'activity_name': activity_name
-            },
-            timeout=2
-        )
-    except:
-        pass
+def _log_activity(atype: str, aname: str):
+    api.log_activity(USERNAME, atype, aname)
 
 
 # Initialize session state
@@ -244,6 +131,20 @@ if 'plaxis_demo_mode' not in st.session_state:
 if 'plaxis_activity_name' not in st.session_state:
     st.session_state.plaxis_activity_name = ''
 
+# GeoTolk session state
+if 'geotolk_step' not in st.session_state:
+    st.session_state.geotolk_step = 1
+if 'geotolk_activity_name' not in st.session_state:
+    st.session_state.geotolk_activity_name = ''
+if 'geotolk_session_id' not in st.session_state:
+    st.session_state.geotolk_session_id = None
+if 'geotolk_files' not in st.session_state:
+    st.session_state.geotolk_files = []  # List of {filename, content, parsed_data}
+if 'geotolk_current_file' not in st.session_state:
+    st.session_state.geotolk_current_file = 0
+if 'geotolk_layers' not in st.session_state:
+    st.session_state.geotolk_layers = []  # Current file's layers
+
 
 def show_project_view():
     """Show project detail view"""
@@ -269,8 +170,7 @@ def show_project_view():
     with col1:
         st.markdown("### 📋 Aktiviteter")
         
-        # Get Plaxis calculations for this project
-        calculations = get_plaxis_calculations(project_id=project['id'], limit=10)
+        calculations = _cached_calculations(project['id'], 10)
         
         if calculations:
             for calc in calculations:
@@ -349,9 +249,11 @@ def show_project_view():
                         if st.button("🔄 Kjør på nytt", key=f"rerun_btn_{calc['id']}", use_container_width=True):
                             if rerun_pwd:
                                 with st.spinner("Kjører beregning på nytt..."):
-                                    result = rerun_plaxis_calculation(calc['id'], rerun_pwd)
+                                    result = api.rerun_plaxis_calculation(
+                                        calc['id'], rerun_pwd, session_id=USERNAME)
                                     if result.get('success'):
                                         st.success("✅ Beregning fullført!")
+                                        _cached_calculations.clear()
                                         st.rerun()
                                     else:
                                         st.error(f"Feil: {result.get('error', 'Ukjent feil')}")
@@ -365,27 +267,32 @@ def show_project_view():
         
         st.markdown("Velg type aktivitet:")
         
-        # Plaxis automation - opens the full workflow
+        # Navigate to separate Plaxis page
         if st.button("🔧 Plaxis automatisering", use_container_width=True, key="btn_plaxis"):
-            st.session_state.current_page = 'plaxis_automation'
             st.session_state.plaxis_level = 1
-            log_project_activity(project['id'], 'Plaxis', 'Plaxis automatisering startet')
-            st.rerun()
-        
+            st.session_state.plaxis_connected = False
+            st.session_state.plaxis_model_data = None
+            _log_project(project['id'], 'Plaxis', 'Plaxis automatisering startet')
+            st.switch_page("pages/plaxis.py")
+
+        # Navigate to separate GeoTolk page
+        if st.button("🗺️ GeoTolk", use_container_width=True, key="btn_geotolk"):
+            st.session_state.geotolk_step = 1
+            st.session_state.geotolk_files = []
+            _log_project(project['id'], 'GeoTolk', 'GeoTolk startet')
+            st.switch_page("pages/geotolk.py")
+
         if st.button("📊 Regneark", use_container_width=True, key="btn_regneark"):
-            log_project_activity(project['id'], 'Regneark', 'Regneark åpnet')
+            _log_project(project['id'], 'Regneark', 'Regneark åpnet')
             st.success("Regneark åpnet! (Demo)")
-            st.rerun()
-        
+
         if st.button("🏗️ Modellering", use_container_width=True, key="btn_modellering"):
-            log_project_activity(project['id'], 'Modellering', 'Modellering startet')
+            _log_project(project['id'], 'Modellering', 'Modellering startet')
             st.success("Modellering startet! (Demo)")
-            st.rerun()
-        
+
         if st.button("📄 Rapport", use_container_width=True, key="btn_rapport"):
-            log_project_activity(project['id'], 'Rapport', 'Rapport generering startet')
+            _log_project(project['id'], 'Rapport', 'Rapport generering startet')
             st.success("Rapport generering startet! (Demo)")
-            st.rerun()
     
     # Project info
     st.markdown("---")
@@ -397,726 +304,9 @@ def show_project_view():
             st.write(f"**Brukere med tilgang:** {', '.join(allowed)}")
 
 
-@st.cache_data(ttl=5)  # Cache i 5 sekunder
-def get_project_activities(project_id):
-    """Get activities for a specific project"""
-    try:
-        response = requests.get(
-            f"{BACKEND_URL}/api/projects/{project_id}/activities",
-            params={'limit': 10},
-            timeout=3
-        )
-        if response.status_code == 200:
-            return response.json().get('activities', [])
-    except requests.exceptions.RequestException:
-        pass
-    return []
-
-
-def log_project_activity(project_id, activity_type, activity_name):
-    """Log activity for a project"""
-    # Clear cache when logging new activity
-    get_project_activities.clear()
-    get_plaxis_calculations_cached.clear()
-    try:
-        requests.post(
-            f"{BACKEND_URL}/api/projects/{project_id}/activities",
-            json={
-                'username': USERNAME,
-                'activity_type': activity_type,
-                'activity_name': activity_name
-            },
-            timeout=2
-        )
-    except:
-        pass
-
-
-# ==================== PLAXIS AUTOMATION ====================
-
-def plaxis_connect(port, password):
-    """Connect to Plaxis server"""
-    try:
-        response = requests.post(
-            f"{BACKEND_URL}/api/plaxis/connect",
-            json={'port': port, 'password': password, 'session_id': USERNAME},
-            timeout=10
-        )
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        return {'success': False, 'error': str(e)}
-
-
-def plaxis_get_model_info():
-    """Get model info from Plaxis"""
-    try:
-        response = requests.get(
-            f"{BACKEND_URL}/api/plaxis/model-info",
-            params={'session_id': USERNAME},
-            timeout=30
-        )
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        return {'success': False, 'error': str(e)}
-
-
-def show_plaxis_automation():
-    """Show Plaxis automation multi-level workflow"""
-    project = st.session_state.selected_project
-    
-    # Back button
-    col_back, col_title = st.columns([1, 4])
-    with col_back:
-        if st.button("← Tilbake til prosjekt"):
-            st.session_state.current_page = 'project_view'
-            st.session_state.plaxis_level = 1
-            st.session_state.plaxis_connected = False
-            st.session_state.plaxis_model_data = None
-            st.rerun()
-    
-    with col_title:
-        st.subheader("🔧 Plaxis Automatisering - Uttak av spuntberegninger")
-    
-    # Progress indicator
-    levels = ["1. Tilkobling", "2. Funksjon", "3. Spunt/Ankere", "4. Faser", "5. Output"]
-    current_level = st.session_state.plaxis_level
-    
-    # Level progress bar
-    progress_cols = st.columns(5)
-    for i, (col, level_name) in enumerate(zip(progress_cols, levels)):
-        with col:
-            if i + 1 < current_level:
-                st.success(f"✓ {level_name}")
-            elif i + 1 == current_level:
-                st.info(f"→ {level_name}")
-            else:
-                st.caption(level_name)
-    
-    st.markdown("---")
-    
-    # Show current level
-    if current_level == 1:
-        show_plaxis_level1()
-    elif current_level == 2:
-        show_plaxis_level2()
-    elif current_level == 3:
-        show_plaxis_level3()
-    elif current_level == 4:
-        show_plaxis_level4()
-    elif current_level == 5:
-        show_plaxis_level5()
-
-
-def show_plaxis_level1():
-    """Level 1: Connect to Plaxis and load model"""
-    st.markdown("### Nivå 1 – Innlesing av Plaxis-modell")
-    st.markdown("Koble til en åpen Plaxis-modell for å hente ut strukturer og faser.")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        # Activity name - required
-        st.markdown("#### Aktivitetsnavn")
-        activity_name = st.text_input(
-            "Gi aktiviteten et navn",
-            value=st.session_state.plaxis_activity_name,
-            placeholder="F.eks. 'Spuntberegning fase 1'",
-            help="Navn som vises i aktivitetslisten"
-        )
-        st.session_state.plaxis_activity_name = activity_name
-        
-        st.markdown("---")
-        st.markdown("#### Plaxis Input (modell)")
-        
-        # Port input - remember value
-        port = st.number_input(
-            "Input Port",
-            min_value=1000,
-            max_value=65535,
-            value=st.session_state.plaxis_port,
-            help="Plaxis Input server port (vanligvis 10000)"
-        )
-        
-        # Password input - remember value
-        password = st.text_input(
-            "Input Passord",
-            value=st.session_state.plaxis_password,
-            type="password",
-            help="Plaxis Input server passord"
-        )
-        
-        st.markdown("---")
-        st.markdown("#### Plaxis Output (resultater)")
-        
-        # Output port
-        output_port = st.number_input(
-            "Output Port",
-            min_value=1000,
-            max_value=65535,
-            value=st.session_state.plaxis_output_port,
-            help="Plaxis Output server port (vanligvis 10001)"
-        )
-        
-        # Output password
-        output_password = st.text_input(
-            "Output Passord",
-            value=st.session_state.plaxis_output_password,
-            type="password",
-            help="Plaxis Output server passord"
-        )
-        
-        # Save values to session
-        st.session_state.plaxis_port = port
-        st.session_state.plaxis_password = password
-        st.session_state.plaxis_output_port = output_port
-        st.session_state.plaxis_output_password = output_password
-        
-        # Validation - require activity name
-        if not activity_name.strip():
-            st.warning("⚠️ Du må gi aktiviteten et navn for å fortsette")
-        
-        # Connect button
-        if st.button("🔌 Koble til Plaxis", type="primary", use_container_width=True, disabled=not activity_name.strip()):
-            with st.spinner("Kobler til Plaxis..."):
-                result = plaxis_connect(port, password)
-                
-                if result.get('success'):
-                    st.session_state.plaxis_connected = True
-                    st.session_state.plaxis_demo_mode = result.get('demo_mode', False)
-                    
-                    # Load model info
-                    model_result = plaxis_get_model_info()
-                    if model_result.get('success'):
-                        st.session_state.plaxis_model_data = model_result
-                        st.session_state.plaxis_demo_mode = model_result.get('demo_mode', False)
-                        st.success("✅ Tilkoblet! Modelldata lastet.")
-                        st.rerun()
-                    else:
-                        st.error(f"Feil ved lasting av modell: {model_result.get('error')}")
-                elif result.get('demo_mode'):
-                    # Demo mode - use mock data
-                    st.session_state.plaxis_connected = True
-                    st.session_state.plaxis_demo_mode = True
-                    model_result = plaxis_get_model_info()
-                    st.session_state.plaxis_model_data = model_result
-                    st.warning("⚠️ Demo-modus: plxscripting ikke tilgjengelig. Viser eksempeldata.")
-                    st.rerun()
-                else:
-                    st.error(f"Tilkoblingsfeil: {result.get('error')}")
-    
-    with col2:
-        st.markdown("#### Modellstatus")
-        
-        if st.session_state.plaxis_connected and st.session_state.plaxis_model_data:
-            model = st.session_state.plaxis_model_data
-            
-            if st.session_state.plaxis_demo_mode:
-                st.info("🎭 Demo-modus aktiv")
-            else:
-                st.success("✅ Tilkoblet til Plaxis")
-            
-            structures = model.get('structures', {})
-            phases = model.get('phases', [])
-            
-            # Summary
-            st.markdown("**Strukturer funnet:**")
-            st.write(f"- Plater (spunt): {len(structures.get('plates', []))}")
-            st.write(f"- Embedded beams: {len(structures.get('embedded_beams', []))}")
-            st.write(f"- N2N-ankere: {len(structures.get('node_to_node_anchors', []))}")
-            st.write(f"- Fixed-end ankere: {len(structures.get('fixed_end_anchors', []))}")
-            st.write(f"- Geogrids: {len(structures.get('geogrids', []))}")
-            
-            st.markdown(f"**Antall faser:** {len(phases)}")
-            
-            # Show phases
-            with st.expander("Vis alle faser"):
-                for phase in phases:
-                    st.write(f"- {phase['name']}")
-            
-            # Next button
-            st.markdown("---")
-            if st.button("Neste → Velg funksjon", type="primary", use_container_width=True):
-                st.session_state.plaxis_level = 2
-                st.rerun()
-        else:
-            st.info("Koble til Plaxis for å se modellinformasjon")
-
-
-def show_plaxis_level2():
-    """Level 2: Select function"""
-    st.markdown("### Nivå 2 – Valg av funksjon")
-    st.markdown("Velg hvilken type analyse som skal utføres.")
-    
-    functions = [
-        {
-            'id': 'optimize_depth',
-            'name': 'Optimalisering av spuntdybde',
-            'description': 'Endring av underkant spunt for å optimalisere design',
-            'enabled': False
-        },
-        {
-            'id': 'optimize_ks',
-            'name': 'Optimalisering av KS-stab',
-            'description': 'Endring av materialparametere og spuntdybde',
-            'enabled': False
-        },
-        {
-            'id': 'extract_results',
-            'name': 'Uttak av spuntberegninger',
-            'description': 'Hent ut resultater for kapasitetssjekk, Msf, og deformasjoner',
-            'enabled': True
-        }
-    ]
-    
-    selected = st.session_state.plaxis_selected_function
-    
-    for func in functions:
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown(f"**{func['name']}**")
-            st.caption(func['description'])
-        with col2:
-            if func['enabled']:
-                if st.button(
-                    "Velg" if selected != func['id'] else "✓ Valgt",
-                    key=f"func_{func['id']}",
-                    type="primary" if selected == func['id'] else "secondary",
-                    use_container_width=True
-                ):
-                    st.session_state.plaxis_selected_function = func['id']
-                    st.rerun()
-            else:
-                st.button("Kommer snart", disabled=True, key=f"func_{func['id']}_disabled")
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← Forrige", use_container_width=True):
-            st.session_state.plaxis_level = 1
-            st.rerun()
-    with col2:
-        if st.button("Neste →", type="primary", use_container_width=True, disabled=not selected):
-            st.session_state.plaxis_level = 3
-            st.rerun()
-
-
-def show_plaxis_level3():
-    """Level 3: Select sheet pile and anchors"""
-    st.markdown("### Nivå 3 – Valg av spunt og avstivninger")
-    st.markdown("Velg hvilken spunt som skal analyseres og tilhørende avstivninger.")
-    
-    model = st.session_state.plaxis_model_data
-    if not model:
-        st.error("Ingen modelldata tilgjengelig")
-        return
-    
-    structures = model.get('structures', {})
-    
-    # Get all potential sheet piles (plates and embedded beams)
-    spunts = structures.get('plates', []) + structures.get('embedded_beams', [])
-    anchors = structures.get('node_to_node_anchors', []) + structures.get('fixed_end_anchors', [])
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### Velg spunt(er)")
-        
-        spunt_options = {s['name']: s for s in spunts}
-        selected_spunt_names = st.multiselect(
-            "Velg spunt(er) som skal analyseres",
-            options=list(spunt_options.keys()),
-            default=st.session_state.plaxis_selected_spunts,
-            help="Velg en eller flere spunter"
-        )
-        st.session_state.plaxis_selected_spunts = selected_spunt_names
-        
-        # Show selected spunts info
-        if selected_spunt_names:
-            st.markdown("**Valgte spunter:**")
-            for name in selected_spunt_names:
-                spunt = spunt_options[name]
-                st.write(f"- {spunt['display_name']}")
-    
-    with col2:
-        st.markdown("#### Velg avstivninger")
-        
-        anchor_options = {a['name']: a for a in anchors}
-        selected_anchor_names = st.multiselect(
-            "Velg ankere/avstivninger",
-            options=list(anchor_options.keys()),
-            default=st.session_state.plaxis_selected_anchors,
-            help="Velg ankere som tilhører valgt(e) spunt(er)"
-        )
-        st.session_state.plaxis_selected_anchors = selected_anchor_names
-        
-        # Show selected anchors info
-        if selected_anchor_names:
-            st.markdown("**Valgte ankere:**")
-            for name in selected_anchor_names:
-                anchor = anchor_options[name]
-                st.write(f"- {anchor['display_name']}")
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← Forrige", use_container_width=True):
-            st.session_state.plaxis_level = 2
-            st.rerun()
-    with col2:
-        if st.button("Neste →", type="primary", use_container_width=True, 
-                     disabled=len(selected_spunt_names) == 0):
-            st.session_state.plaxis_level = 4
-            st.rerun()
-
-
-def show_plaxis_level4():
-    """Level 4: Select phases and analysis types"""
-    st.markdown("### Nivå 4 – Valg av faser og analysetype")
-    st.markdown("Velg hvilke faser som skal analyseres og hvilke resultater som skal hentes ut.")
-    
-    model = st.session_state.plaxis_model_data
-    if not model:
-        st.error("Ingen modelldata tilgjengelig")
-        return
-    
-    phases = model.get('phases', [])
-    
-    # Initialize phase selections if needed
-    if not st.session_state.plaxis_selected_phases:
-        st.session_state.plaxis_selected_phases = {
-            phase['name']: {'msf': False, 'ux': False, 'capacity': False}
-            for phase in phases
-        }
-    
-    st.markdown("For hver fase, velg hvilke analyser som skal kjøres:")
-    
-    # Header row
-    col_name, col_msf, col_ux, col_cap = st.columns([3, 1, 1, 1])
-    with col_name:
-        st.markdown("**Fase**")
-    with col_msf:
-        st.markdown("**Msf**")
-    with col_ux:
-        st.markdown("**Ux**")
-    with col_cap:
-        st.markdown("**Kapasitet**")
-    
-    st.markdown("---")
-    
-    # Phase rows
-    for phase in phases:
-        phase_name = phase['name']
-        
-        # Initialize if not exists
-        if phase_name not in st.session_state.plaxis_selected_phases:
-            st.session_state.plaxis_selected_phases[phase_name] = {'msf': False, 'ux': False, 'capacity': False}
-        
-        col_name, col_msf, col_ux, col_cap = st.columns([3, 1, 1, 1])
-        
-        with col_name:
-            st.write(phase_name)
-        
-        with col_msf:
-            msf = st.checkbox(
-                "Msf",
-                value=st.session_state.plaxis_selected_phases[phase_name].get('msf', False),
-                key=f"msf_{phase_name}",
-                label_visibility="collapsed"
-            )
-            st.session_state.plaxis_selected_phases[phase_name]['msf'] = msf
-        
-        with col_ux:
-            ux = st.checkbox(
-                "Ux",
-                value=st.session_state.plaxis_selected_phases[phase_name].get('ux', False),
-                key=f"ux_{phase_name}",
-                label_visibility="collapsed"
-            )
-            st.session_state.plaxis_selected_phases[phase_name]['ux'] = ux
-        
-        with col_cap:
-            cap = st.checkbox(
-                "Kapasitet",
-                value=st.session_state.plaxis_selected_phases[phase_name].get('capacity', False),
-                key=f"cap_{phase_name}",
-                label_visibility="collapsed"
-            )
-            st.session_state.plaxis_selected_phases[phase_name]['capacity'] = cap
-    
-    st.markdown("---")
-    
-    # Quick select buttons
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Velg alle Msf", use_container_width=True):
-            for phase_name in st.session_state.plaxis_selected_phases:
-                st.session_state.plaxis_selected_phases[phase_name]['msf'] = True
-            st.rerun()
-    with col2:
-        if st.button("Velg alle Ux", use_container_width=True):
-            for phase_name in st.session_state.plaxis_selected_phases:
-                st.session_state.plaxis_selected_phases[phase_name]['ux'] = True
-            st.rerun()
-    with col3:
-        if st.button("Velg alle Kapasitet", use_container_width=True):
-            for phase_name in st.session_state.plaxis_selected_phases:
-                st.session_state.plaxis_selected_phases[phase_name]['capacity'] = True
-            st.rerun()
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← Forrige", use_container_width=True):
-            st.session_state.plaxis_level = 3
-            st.rerun()
-    with col2:
-        # Check if any phase is selected
-        any_selected = any(
-            any(v for v in phase_sel.values())
-            for phase_sel in st.session_state.plaxis_selected_phases.values()
-        )
-        if st.button("Neste →", type="primary", use_container_width=True, disabled=not any_selected):
-            st.session_state.plaxis_level = 5
-            st.rerun()
-
-
-def show_plaxis_level5():
-    """Level 5: Output settings and run"""
-    st.markdown("### Nivå 5 – Output og resultater")
-    st.markdown("Velg lagringsmappe og kjør beregningen.")
-    
-    # Summary of selections
-    st.markdown("#### Oppsummering av valg")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Valgte spunter:**")
-        for spunt in st.session_state.plaxis_selected_spunts:
-            st.write(f"- {spunt}")
-        
-        st.markdown("**Valgte ankere:**")
-        if st.session_state.plaxis_selected_anchors:
-            for anchor in st.session_state.plaxis_selected_anchors:
-                st.write(f"- {anchor}")
-        else:
-            st.write("- Ingen valgt")
-    
-    with col2:
-        st.markdown("**Faser med analyser:**")
-        for phase_name, selections in st.session_state.plaxis_selected_phases.items():
-            active = [k for k, v in selections.items() if v]
-            if active:
-                st.write(f"- {phase_name}: {', '.join(active)}")
-    
-    st.markdown("---")
-    
-    # Output settings
-    st.markdown("#### Output-innstillinger")
-    
-    output_path = st.text_input(
-        "Lagringsmappe",
-        value=os.path.expanduser("~/Documents/RamGAP_Results"),
-        help="Mappe hvor resultater lagres"
-    )
-    
-    output_format = st.selectbox(
-        "Output-format",
-        options=["Kun kritisk fase", "Alle valgte faser", "Kritisk snitt"],
-        index=1
-    )
-    
-    generate_excel = st.checkbox("Generer Excel spuntark", value=True)
-    generate_report = st.checkbox("Generer beregningsrapport", value=False)
-    
-    st.markdown("---")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("← Forrige", use_container_width=True):
-            st.session_state.plaxis_level = 4
-            st.rerun()
-    
-    with col2:
-        if st.button("🚀 Kjør beregning", type="primary", use_container_width=True):
-            run_plaxis_calculation(output_path, generate_excel)
-
-
-def run_plaxis_calculation(output_path, generate_excel):
-    """Run the actual Plaxis calculation via backend API"""
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    # Build job configuration
-    status_text.text("Forbereder beregningsjobb...")
-    progress_bar.progress(5)
-    
-    # Build structures for job
-    model_data = st.session_state.plaxis_model_data or {}
-    structures = model_data.get('structures', {})
-    
-    # Map selected names to structure categories
-    job_structures = {
-        "plates": [],
-        "embedded_beams": [],
-        "node_to_node_anchors": [],
-        "fixed_end_anchors": [],
-        "geogrids": []
-    }
-    
-    # Add selected spunts
-    for spunt_name in st.session_state.plaxis_selected_spunts:
-        for plate in structures.get('plates', []):
-            if plate['name'] == spunt_name:
-                job_structures['plates'].append(spunt_name)
-        for eb in structures.get('embedded_beams', []):
-            if eb['name'] == spunt_name:
-                job_structures['embedded_beams'].append(spunt_name)
-    
-    # Add selected anchors
-    for anchor_name in st.session_state.plaxis_selected_anchors:
-        for n2n in structures.get('node_to_node_anchors', []):
-            if n2n['name'] == anchor_name:
-                job_structures['node_to_node_anchors'].append(anchor_name)
-        for fea in structures.get('fixed_end_anchors', []):
-            if fea['name'] == anchor_name:
-                job_structures['fixed_end_anchors'].append(anchor_name)
-    
-    # Build analysis config from phase selections
-    capacity_phases = []
-    msf_phases = []
-    displacement_phases = []
-    
-    for phase_name, selections in st.session_state.plaxis_selected_phases.items():
-        if selections.get('capacity'):
-            capacity_phases.append(phase_name)
-        if selections.get('msf'):
-            msf_phases.append(phase_name)
-        if selections.get('ux'):
-            displacement_phases.append(phase_name)
-    
-    job = {
-        "structures": job_structures,
-        "analysis": {
-            "capacity_check": {
-                "enabled": len(capacity_phases) > 0,
-                "phases": capacity_phases
-            },
-            "msf": {
-                "enabled": len(msf_phases) > 0,
-                "phases": msf_phases
-            },
-            "displacement": {
-                "enabled": len(displacement_phases) > 0,
-                "phases": displacement_phases,
-                "component": "Ux"
-            }
-        },
-        "resultsPath": {
-            "path": output_path
-        }
-    }
-    
-    status_text.text("Sender beregning til Plaxis...")
-    progress_bar.progress(15)
-    
-    # Get project_id if available
-    project_id = None
-    if st.session_state.selected_project:
-        project_id = st.session_state.selected_project.get('id')
-    
-    # Call backend API
-    try:
-        response = requests.post(
-            f"{BACKEND_URL}/api/plaxis/run",
-            json={
-                'session_id': USERNAME,
-                'job': job,
-                'project_id': project_id,
-                'activity_name': st.session_state.plaxis_activity_name or 'Plaxis beregning',
-                'input_port': st.session_state.plaxis_port,
-                'input_password': st.session_state.plaxis_password,
-                'output_port': st.session_state.plaxis_output_port,
-                'output_password': st.session_state.plaxis_output_password
-            },
-            timeout=300  # 5 minutes timeout for calculation
-        )
-        
-        result = response.json()
-        
-        if result.get('success'):
-            progress_bar.progress(100)
-            status_text.text("Ferdig!")
-            
-            # Log activity
-            if st.session_state.selected_project:
-                log_project_activity(
-                    st.session_state.selected_project['id'],
-                    'Plaxis',
-                    f"Spuntberegning fullført: {', '.join(st.session_state.plaxis_selected_spunts)}"
-                )
-            
-            st.success("✅ Beregning fullført!")
-            
-            if result.get('demo_mode'):
-                st.info("🎭 Demo-modus: Viser eksempelresultater")
-            
-            output_file = result.get('output_file')
-            if output_file and output_file != 'Demo - ingen fil generert':
-                st.info(f"📁 Resultater lagret i: {output_file}")
-            
-            # Show results
-            st.markdown("---")
-            st.markdown("#### Resultater")
-            
-            results = result.get('results', {})
-            
-            # MSF results
-            msf_results = results.get('msf', {})
-            if msf_results:
-                st.markdown("**Msf-verdier:**")
-                msf_data = {'Fase': list(msf_results.keys()), 'Msf': list(msf_results.values())}
-                st.table(msf_data)
-            
-            # Displacement results
-            displacement = results.get('displacement', {})
-            if displacement:
-                st.markdown("**Maks horisontal deformasjon:**")
-                for struct_type, objects in displacement.items():
-                    for obj_name, phases in objects.items():
-                        ux_data = {'Fase': list(phases.keys()), f'{obj_name} Ux (mm)': list(phases.values())}
-                        st.table(ux_data)
-            
-            # Capacity results
-            capacity = results.get('capacity', {})
-            if capacity:
-                st.markdown("**Tverrsnittskrefter:**")
-                for struct_type, objects in capacity.items():
-                    if struct_type in ['plates', 'embedded_beams']:
-                        for obj_name, phases in objects.items():
-                            st.markdown(f"*{obj_name}:*")
-                            cap_rows = []
-                            for phase_name, forces in phases.items():
-                                cap_rows.append({
-                                    'Fase': phase_name,
-                                    'Nx (kN/m)': forces.get('Nx'),
-                                    'Q (kN/m)': forces.get('Q'),
-                                    'M (kNm/m)': forces.get('M')
-                                })
-                            if cap_rows:
-                                st.table(cap_rows)
-        else:
-            progress_bar.progress(0)
-            st.error(f"❌ Feil: {result.get('error', 'Ukjent feil')}")
-            
-    except requests.exceptions.Timeout:
-        st.error("⏱️ Tidsavbrudd: Beregningen tok for lang tid")
-    except requests.exceptions.RequestException as e:
-        st.error(f"❌ Nettverksfeil: {str(e)}")
+# Plaxis and GeoTolk workflows have been moved to separate Streamlit pages:
+#   frontend/pages/2_Plaxis.py
+#   frontend/pages/3_GeoTolk.py
 
 
 def show_project_setup():
@@ -1143,11 +333,11 @@ def show_project_setup():
                 # Parse allowed users
                 allowed_users = [u.strip() for u in allowed_users_input.split(',') if u.strip()]
                 
-                success, result = create_project(project_name, project_description, allowed_users)
+                result = api.create_project(project_name, project_description, USERNAME, allowed_users)
                 
-                if success:
+                if result.get('id') or result.get('project'):
                     st.success(f"✅ Prosjekt '{project_name}' opprettet!")
-                    log_activity('project', f'Opprettet: {project_name}')
+                    _log_activity('project', f'Opprettet: {project_name}')
                     st.rerun()
                 else:
                     st.error(f"Feil: {result.get('error', 'Ukjent feil')}")
@@ -1156,7 +346,7 @@ def show_project_setup():
     st.markdown("---")
     st.markdown("### Dine prosjekter")
     
-    projects = get_user_projects()
+    projects = api.get_projects(USERNAME)
     if projects:
         for project in projects:
             with st.expander(f"📁 {project['name']}", expanded=False):
@@ -1171,55 +361,53 @@ def show_project_setup():
         st.info("Ingen prosjekter ennå. Opprett ditt første prosjekt ovenfor!")
 
 
+
 def show_home():
-    """Show home page"""
-    # Greeting
+    """Show home page — greeting + project shortcuts + recent activity"""
     st.markdown(f'<div class="greeting">Hei, {USERNAME}! 👋</div>', unsafe_allow_html=True)
-    
-    # Status
-    st.markdown("""
-    <div class="status-box">
-        <div class="status-text">🚀 Klar til videre utvikling</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Two columns: Projects and Recent Activity
-    col1, col2 = st.columns([2, 1])
-    
+    st.markdown("")
+
+    col1, col2 = st.columns([3, 1])
+
     with col1:
-        st.subheader("📁 Dine prosjekter")
-        
-        projects = get_user_projects()
+        st.subheader("📁 Prosjekter")
+
+        projects = api.get_projects(USERNAME)
         if projects:
             for project in projects:
-                # Make project clickable
-                if st.button(
-                    f"📁 {project['name']}",
-                    key=f"project_{project['id']}",
-                    use_container_width=True,
-                    help=project.get('description') or 'Klikk for å åpne prosjektet'
-                ):
-                    st.session_state.selected_project = project
-                    st.session_state.current_page = 'project_view'
-                    log_activity('project', f"Åpnet: {project['name']}")
-                    st.rerun()
-                st.caption(project.get('description') or 'Ingen beskrivelse')
+                col_card, col_btn = st.columns([5, 1])
+                with col_card:
+                    st.markdown(
+                        f'<div class="project-shortcut">'
+                        f'<div class="project-title">📁 {project["name"]}</div>'
+                        f'<div class="project-desc">{project.get("description") or "Ingen beskrivelse"}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+                with col_btn:
+                    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
+                    if st.button("Åpne →", key=f"project_{project['id']}", use_container_width=True):
+                        st.session_state.selected_project = project
+                        st.session_state.current_page = 'project_view'
+                        _log_activity('project', f"Åpnet: {project['name']}")
+                        st.rerun()
         else:
-            st.info("Ingen prosjekter ennå. Gå til 'Prosjektsetup' for å opprette et nytt prosjekt.")
-    
+            st.info("Ingen prosjekter ennå. Gå til **Prosjektsetup** i menyen for å opprette et.")
+
     with col2:
         st.subheader("🕐 Siste aktivitet")
-        
-        activities = get_recent_activity()
+
+        activities = api.get_recent_activity(USERNAME, limit=6)
         if activities:
             for activity in activities:
                 timestamp = activity.get('timestamp', '')[:10] if activity.get('timestamp') else ''
-                st.markdown(f"""
-                <div class="activity-item">
-                    <strong>{activity.get('activity_name', '')}</strong><br>
-                    <small>{activity.get('activity_type', '')} • {timestamp}</small>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="activity-item">'
+                    f'<strong>{activity.get("activity_name", "")}</strong><br>'
+                    f'<small>{activity.get("activity_type", "")} · {timestamp}</small>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
         else:
             st.caption("Ingen aktivitet registrert ennå")
 
@@ -1249,23 +437,20 @@ def main():
         st.subheader("👤 Bruker")
         st.write(f"Innlogget som: **{USERNAME}**")
         
-        # Backend status - bruker cached versjon
+        # Backend status
         st.divider()
         st.subheader("System Status")
-        backend_healthy = check_backend_health()
-        if backend_healthy:
+        if api.is_healthy():
             st.success("✅ Backend tilkoblet")
         else:
             st.warning("⚠️ Backend ikke tilgjengelig")
             st.caption("Start backend med: python backend/app.py")
     
-    # Main content based on current page
+    # Route to correct page (Plaxis and GeoTolk are now separate Streamlit pages)
     if st.session_state.current_page == 'project_setup':
         show_project_setup()
     elif st.session_state.current_page == 'project_view':
         show_project_view()
-    elif st.session_state.current_page == 'plaxis_automation':
-        show_plaxis_automation()
     else:
         show_home()
     
@@ -1275,4 +460,6 @@ def main():
 
 
 if __name__ == "__main__":
+    main()
+else:
     main()

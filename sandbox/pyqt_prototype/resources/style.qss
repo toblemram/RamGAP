@@ -1,0 +1,70 @@
+/* resources/style.qss */
+
+/* Overordnet widget-stil */
+QWidget {
+    background-color: #f5f5f5;
+    color: #333333;
+    font-family: Arial, sans-serif;
+}
+
+/* Hovedvindu */
+#MainWindow {
+    background-color: #ffffff;
+}
+
+/* Top-nivå faner */
+#MainTabWidget::pane {
+    border: none;
+    background: transparent;
+}
+#MainTabWidget QTabBar::tab {
+    background: #e6f1fa;
+    color: #005b99;
+    padding: 8px 20px;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    margin-right: 2px;
+}
+#MainTabWidget QTabBar::tab:selected {
+    background: #ffffff;
+    color: #1d7bb0;
+    font-weight: bold;
+}
+
+/* Sidepanel */
+#SideListWidget {
+    background: #ffffff;
+    border: 1px solid #e6f1fa;
+    outline: none;
+}
+#SideListWidget::item {
+    padding: 6px 12px;
+}
+#SideListWidget::item:selected {
+    background: #005b99;
+    color: #ffffff;
+    font-weight: bold;
+}
+
+/* Splitter-håndtak */
+QSplitter#Splitter_Plaxis::handle,
+QSplitter#Splitter_Automatisasjon::handle,
+QSplitter#Splitter_Alternativ\ 3::handle {
+    background-color: #cccccc;
+    width: 5px;
+}
+
+/* Innholdslabel */
+#ContentLabel {
+    font-size: 14px;
+    color: #333333;
+}
+
+/* Generelle knapper og verktøyknapper */
+QToolButton {
+    border: none;
+    background: transparent;
+}
+QToolButton:hover {
+    background-color: #e6f1fa;
+}

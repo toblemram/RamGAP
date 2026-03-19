@@ -1,0 +1,39 @@
+/* RamGAP Global Styles
+   =====================
+   Shared CSS applied across all Streamlit pages.
+   Import in app.py with st.markdown('<style>...</style>', unsafe_allow_html=True)
+   or reference via st.markdown(open('static/style.css').read()).
+*/
+
+/* Primary color palette */
+:root {
+    --color-primary:    #1E88E5;
+    --color-primary-dk: #1565C0;
+    --color-bg-light:   #E3F2FD;
+    --color-text:       #333333;
+    --color-border:     #EEEEEE;
+}
+
+/* Main header */
+.main-header {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--color-primary);
+    text-align: center;
+    padding: 1rem 0;
+}
+
+/* Project card */
+.project-card {
+    padding: 1rem;
+    border-radius: 8px;
+    background-color: #f8f9fa;
+    border-left: 4px solid var(--color-primary);
+    margin-bottom: 0.5rem;
+}
+
+/* Activity feed item */
+.activity-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}

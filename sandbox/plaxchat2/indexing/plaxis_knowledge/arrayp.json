@@ -1,0 +1,35 @@
+{
+  "id": "geometry.arrayp",
+  "object": "geometry",
+  "method": "arrayp",
+  "synopsis": "Oppretter et polart array av ett eller flere objekter.",
+  "signature_variants": [
+    {
+      "args": ["objects:PlaxisObject | list[PlaxisObject]", "center:(float,float)", "angle:float", "count:int", "copy:bool"],
+      "returns": "list[PlaxisObject]"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "Minst ett gyldig objekt må eksistere"
+  ],
+  "minimal_examples": [
+    "line = g.line((0, 2), (2, 2))[-1]\nres = g.arrayp(line, (0, 0), 180, 4, True)\nlines = [item for item in res if item._plx_type == 'Line']"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Bruk g, ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Sjekk at du sender et gyldig objekt eller liste av objekter først."
+    }
+  ],
+  "aliases": [
+    "polar array",
+    "array polar",
+    "lag polart array",
+    "kopier rundt senter"
+  ]
+}

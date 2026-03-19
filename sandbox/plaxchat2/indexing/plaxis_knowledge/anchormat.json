@@ -1,0 +1,29 @@
+{
+  "id": "material.anchormat",
+  "object": "material",
+  "method": "anchormat",
+  "synopsis": "Oppretter et nytt Anchor material-sett.",
+  "signature_variants": [
+    {
+      "args": [],
+      "returns": "AnchorMaterial"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt"
+  ],
+  "minimal_examples": [
+    "anchor_material = g.anchormat()"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Sjekk at du bruker g, ikke g_i."
+    }
+  ],
+  "aliases": [
+    "create anchor material",
+    "anchormat",
+    "anker materiale"
+  ]
+}

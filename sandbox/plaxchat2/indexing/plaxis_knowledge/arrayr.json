@@ -1,0 +1,45 @@
+{
+  "id": "geometry.arrayr",
+  "object": "geometry",
+  "method": "arrayr",
+  "synopsis": "Oppretter et rektangulært array fra ett eller flere objekter.",
+  "signature_variants": [
+    {
+      "args": ["object:PlaxisObject", "count:int", "interval:float"],
+      "returns": "list[PlaxisObject]"
+    },
+    {
+      "args": ["object:PlaxisObject", "rows:int", "row_interval:(float,float)", "cols:int", "col_interval:(float,float)"],
+      "returns": "list[PlaxisObject]"
+    },
+    {
+      "args": ["object:PlaxisObject", "count:int", "interval:(float,float)"],
+      "returns": "list[PlaxisObject]"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "Et gyldig objekt (f.eks. borehull eller punkt) må eksistere"
+  ],
+  "minimal_examples": [
+    "borehole = g.borehole(0)\nboreholes = g.arrayr(borehole, 4, 5)",
+    "point = g.point(2, 3)\npoints = g.arrayr(point, 2, (1, 5), 3, (6, 4))",
+    "point = g.point(2, 3)\npoints = g.arrayr(point, 3, (1, 0))"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Bruk g, ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Sjekk at du sender riktige intervallparametre (float eller tuple av floats)."
+    }
+  ],
+  "aliases": [
+    "rectangular array",
+    "array rectangular",
+    "lag rektangulært array",
+    "kopier i rader og kolonner"
+  ]
+}

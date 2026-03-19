@@ -1,0 +1,6 @@
+faiss-cpu
+openai
+sqlite-utils
+pydantic
+rapidfuzz
+python-dotenv

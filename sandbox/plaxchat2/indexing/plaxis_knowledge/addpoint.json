@@ -1,0 +1,42 @@
+{
+  "id": "geometry.addpoint",
+  "object": "geometry",
+  "method": "addpoint",
+  "synopsis": "Legger til nye punkter i en polygon eller et vannivå.",
+  "signature_variants": [
+    {
+      "args": ["x:float", "y:float"],
+      "returns": "OK"
+    },
+    {
+      "args": ["(x:float, y:float)", "(x:float, y:float)", "..."],
+      "returns": "OK"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "Polygon eller vannivå må eksistere"
+  ],
+  "minimal_examples": [
+    "polygon = g.polygon((0, 0), (0, 5), (5, 5), (5, 0))[0]\npolygon.addpoint(0, -2)",
+    "polygon = g.polygon((0, 0), (0, 5), (5, 5), (5, 0))[0]\npolygon.addpoint((0, -2), (2, 7))",
+    "g.polygon((0, 0), (0, 5), (5, 5), (5, 0))\ng.gotoflow()\nwaterlevel = g.waterlevel((1, 4), (2, 4))\nwaterlevel.addpoint(4, 3)",
+    "g.polygon((0, 0), (0, 5), (5, 5), (5, 0))\ng.gotoflow()\nwaterlevel = g.waterlevel((1, 4), (2, 4))\nwaterlevel.addpoint((3, 3), (4, 3.5))"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Sjekk at du bruker g, ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Bruk enten koordinater som tall eller tuples, ikke bland."
+    }
+  ],
+  "aliases": [
+    "add point",
+    "legg til punkt",
+    "polygon add point",
+    "waterlevel add point"
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "id": "feature.activate",
+  "object": "feature",
+  "method": "activate",
+  "synopsis": "Aktiverer en eller flere objekter (f.eks. plate, line) i en eller flere faser.",
+  "signature_variants": [
+    {
+      "args": ["phase:Phase", "..."],
+      "returns": "OK"
+    },
+    {
+      "args": ["objects:tuple[Feature]", "phases:tuple[Phase]"],
+      "returns": "OK"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "Objekt(er) som skal aktiveres må være opprettet",
+    "Faser må være definert"
+  ],
+  "minimal_examples": [
+    "g.polygon((0, 0), (0, 5), (5, 5), (5, 0))\ng.plate((1, 1), (2, 2))\n\ng.gotostages()\nphase0 = g.InitialPhase\nphase1 = g.phase(phase0)\nphase2 = g.phase(phase0)\nplate = g.Plates[-1]\n\nplate.activate(phase0, phase1)",
+    "line = g.Lines[-1]\nline.activate(phase0, phase2)",
+    "g.polygon((0, 0), (0, 5), (5, 5), (5, 0))\ng.plate((0, 0), (0, 2), (2, 2))\n\ng.gotostages()\nphase0 = g.InitialPhase\nphase1 = g.phase(phase0)\nplates = g.Plates\n\ng.activate((plates[-1], plates[-2]), (phase0, phase1))",
+    "phase2 = g.phase(phase1)\ng.activate((plates[-1], plates[-2]), phase1, phase2)"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Sjekk at du bruker g og ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Pass på at argumentene er faser eller features i riktig rekkefølge."
+    }
+  ],
+  "aliases": [
+    "activate feature",
+    "aktiver plate",
+    "aktiver element i fase",
+    "enable feature",
+    "activate object"
+  ]
+}

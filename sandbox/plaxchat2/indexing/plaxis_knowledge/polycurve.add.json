@@ -1,0 +1,20 @@
+{
+  "id": "polycurve.add",
+  "object": "polycurve",
+  "method": "add",
+  "synopsis": "Legger til segment(er) i en polycurve eller rad i avansert tabell.",
+  "signature_variants": [
+    {"args": [], "returns": "Segment"},
+    {"args": ["'arc'", "start_angle:int", "end_angle:int", "radius:float", "'line'", "angle:int", "length:float"], "returns": "Segment[]"}
+  ],
+  "preconditions": ["g er tilkoblet et åpent prosjekt", "polycurve eksisterer"],
+  "minimal_examples": [
+    "polycurve = g.polycurve(4, 5)\nsegment = polycurve.add()",
+    "polycurve = g.polycurve((4, 5), 'line', 0, 2, 'arc', 45, 90, 3)[0]\nsegments = polycurve.add('arc', 0, 45, 1, 'line', 90, 2)"
+  ],
+  "common_errors": [
+    {"msg_contains": "AttributeError", "hint": "Sjekk at du bruker g, ikke g_i."},
+    {"msg_contains": "invalid argument", "hint": "Sjekk rekkefølge/typer på argumentene."}
+  ],
+  "aliases": ["add segment", "legg til segment", "polycurve add segment", "advanced table add row"]
+}

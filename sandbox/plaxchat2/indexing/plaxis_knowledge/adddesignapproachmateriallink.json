@@ -1,0 +1,42 @@
+{
+  "id": "designapproach.adddesignapproachmateriallink",
+  "object": "designapproach",
+  "method": "adddesignapproachmateriallink",
+  "synopsis": "Legger til en design approach material factor til en materialparameter.",
+  "signature_variants": [
+    {
+      "args": ["design_approach:DesignApproach", "material_parameter:MaterialProperty", "factor_label:MaterialFactorLabel"],
+      "returns": "OK"
+    },
+    {
+      "args": ["design_approach:DesignApproach", "material_parameter:MaterialProperty", "factor_value:int", "factor_label:MaterialFactorLabel"],
+      "returns": "OK"
+    }
+  ],
+  "preconditions": [
+    "g er tilkoblet et åpent prosjekt",
+    "En materialdefinisjon må være opprettet",
+    "En design approach må være opprettet",
+    "En material factor label må være opprettet"
+  ],
+  "minimal_examples": [
+    "material = g.soilmat(\"MaterialName\", \"Sand\", \"SoilModel\", 1,\n                      \"gammaUnsat\", 17, \"gammaSat\", 20, \"Gref\", 2000)\nmaterial_factor_label = g.materialfactorlabel()\ndesign_approach = g.designapproach()\n\ng.adddesignapproachmateriallink(design_approach, material.gammaSat, material_factor_label)",
+    "g.adddesignapproachmateriallink(design_approach, material.gammaSat, 3, material_factor_label)"
+  ],
+  "common_errors": [
+    {
+      "msg_contains": "AttributeError",
+      "hint": "Sjekk at du bruker g, ikke g_i."
+    },
+    {
+      "msg_contains": "TypeError",
+      "hint": "Kontroller at du sender inn riktige typer objekter (DesignApproach, MaterialProperty, MaterialFactorLabel)."
+    }
+  ],
+  "aliases": [
+    "add design approach material link",
+    "legg til design approach material factor",
+    "material parameter factor link",
+    "design approach factor"
+  ]
+}
