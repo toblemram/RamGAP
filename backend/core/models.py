@@ -15,9 +15,8 @@ Usage:
 from sqlalchemy import (
     Column, Integer, String, DateTime, Text, Float, Boolean, ForeignKey
 )
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from datetime import datetime
+from sqlalchemy.orm import declarative_base, relationship
+from datetime import datetime, timezone
 import json
 
 Base = declarative_base()
@@ -35,8 +34,8 @@ class Project(Base):
     name        = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     created_by  = Column(String(255), nullable=False)  # Windows username
-    created_at  = Column(DateTime, default=datetime.utcnow)
-    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     is_active   = Column(Boolean, default=True)
 
     access_list = relationship(
@@ -63,7 +62,7 @@ class ProjectAccess(Base):
     id         = Column(Integer, primary_key=True, autoincrement=True)
     project_id = Column(Integer, ForeignKey('projects.id'), nullable=False)
     username   = Column(String(255), nullable=False)
-    granted_at = Column(DateTime, default=datetime.utcnow)
+    granted_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     granted_by = Column(String(255), nullable=True)
 
     project = relationship('Project', back_populates='access_list')
@@ -88,7 +87,7 @@ class RecentActivity(Base):
     activity_type = Column(String(100), nullable=False)
     activity_name = Column(String(255), nullable=False)
     activity_data = Column(Text, nullable=True)  # optional JSON payload
-    timestamp     = Column(DateTime, default=datetime.utcnow)
+    timestamp     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
         return {
@@ -138,7 +137,7 @@ class PlaxisCalculation(Base):
     results_json  = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
 
-    started_at   = Column(DateTime, default=datetime.utcnow)
+    started_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
 
     # --- helpers ---
@@ -203,7 +202,7 @@ class GeoTolkSession(Base):
     total_files     = Column(Integer, default=0)
     completed_files = Column(Integer, default=0)
 
-    created_at   = Column(DateTime, default=datetime.utcnow)
+    created_at   = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
 
     interpretations = relationship(
@@ -249,7 +248,7 @@ class GeoTolkInterpretation(Base):
     # Status: 'pending' | 'interpreted' | 'verified'
     status = Column(String(50), nullable=False, default='pending')
 
-    created_at     = Column(DateTime, default=datetime.utcnow)
+    created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     interpreted_at = Column(DateTime, nullable=True)
 
     session = relationship('GeoTolkSession', back_populates='interpretations')

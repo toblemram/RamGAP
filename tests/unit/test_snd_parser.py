@@ -32,11 +32,11 @@ def test_find_data_start_returns_positive_index():
 
 
 def test_parse_returns_records():
-    records, _ = parse_snd_with_events(SAMPLE_SND)
-    assert len(records) > 0
+    result = parse_snd_with_events(SAMPLE_SND)
+    assert len(result["depth"]) > 0
 
 
 def test_first_depth_is_small_positive():
-    records, _ = parse_snd_with_events(SAMPLE_SND)
-    assert records[0]["depth"] > 0
-    assert records[0]["depth"] < 1.0
+    result = parse_snd_with_events(SAMPLE_SND)
+    assert result["depth"][0] > 0
+    assert result["depth"][0] < 1.0

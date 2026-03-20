@@ -13,10 +13,10 @@ from unittest.mock import patch, MagicMock
 @pytest.fixture()
 def service():
     """Return a PlaxisService with plxscripting mocked out."""
-    with patch("plaxis.plaxis_service.PLAXIS_AVAILABLE", True), \
-         patch("plaxis.plaxis_service.new_server") as mock_ns:
+    with patch("activities.plaxis.service.PLAXIS_AVAILABLE", True), \
+         patch("activities.plaxis.service.new_server") as mock_ns:
         mock_ns.return_value = (MagicMock(), MagicMock())
-        from plaxis.plaxis_service import PlaxisService
+        from activities.plaxis.service import PlaxisService
         yield PlaxisService()
 
 
