@@ -24,9 +24,9 @@ try:
 except ImportError:
     PLAXIS_AVAILABLE = False
 
-from activities.plaxis.extraction.level5_results import run_capacity, run_msf, run_displacement
-from activities.plaxis.extraction.level5_data import resolve_structures, resolve_phases
-from activities.plaxis.extraction.level5_print import print_results_to_excel
+from activities.plaxis.extraction.result_extractor import run_capacity, run_msf, run_displacement
+from activities.plaxis.extraction.structure_resolver import resolve_structures, resolve_phases
+from activities.plaxis.extraction.excel_exporter import print_results_to_excel
 
 
 def run_plaxis_extraction(

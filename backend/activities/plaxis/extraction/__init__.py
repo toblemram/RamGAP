@@ -3,7 +3,8 @@
 Plaxis Extraction Sub-package
 ==============================
 Contains modules for extracting data from a live Plaxis model:
-    level1_info.py  — Read phases and structural element names (Level 1)
-    level5_data.py  — Extract numerical results for selected phases (Level 5)
-    level5_print.py — Format and export results to Excel / reports
+    model_info.py         — Read phases and structural element names from open model
+    structure_resolver.py — Translate names from job config into live Plaxis objects
+    result_extractor.py   — Extract forces, MSF, and displacement from Plaxis Output
+    excel_exporter.py     — Write results to a timestamped Excel file
 """

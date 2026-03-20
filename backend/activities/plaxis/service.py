@@ -21,7 +21,7 @@ try:
 except ImportError:
     PLAXIS_AVAILABLE = False
 
-from activities.plaxis.extraction.level1_info import extract_model_info
+from activities.plaxis.extraction.model_info import extract_model_info
 
 
 class PlaxisService:

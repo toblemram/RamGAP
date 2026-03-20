@@ -147,7 +147,7 @@ def model_info():
 
     g_i = session['g_i']
     try:
-        from activities.plaxis.extraction.level1_info import extract_model_info
+        from activities.plaxis.extraction.model_info import extract_model_info
         info = extract_model_info(g_i)
         info.update({'success': True, 'demo_mode': False})
         return jsonify(info)
