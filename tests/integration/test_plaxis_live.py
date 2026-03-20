@@ -54,6 +54,8 @@ class TestTilkobling:
     def test_output_server_svarer(self, plaxis_connection):
         """g_o er tilkoblet og har Phases."""
         g_o = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig — kjør med --plaxis-out-port")
         assert hasattr(g_o, "Phases")
         assert len(g_o.Phases) > 0
 
@@ -106,6 +108,8 @@ class TestResolve:
     def test_resolve_structures_finner_plater(self, plaxis_connection):
         g_i  = plaxis_connection["g_i"]
         g_o  = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
         info = extract_model_info(g_i)
 
         plates = info["structures"]["plates"]
@@ -120,6 +124,8 @@ class TestResolve:
     def test_resolve_phases_finner_faser(self, plaxis_connection):
         g_i  = plaxis_connection["g_i"]
         g_o  = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
         info = extract_model_info(g_i)
 
         names    = _phase_names(info)
@@ -129,6 +135,8 @@ class TestResolve:
 
     def test_resolve_ukjent_struktur_gir_tom_liste(self, plaxis_connection):
         g_o  = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
         result = resolve_structures(g_o, {"structures": {"plates": ["Finnes_absolutt_ikke"]}})
         assert result["plates"] == []
 
@@ -141,6 +149,8 @@ class TestResultEkstraksjon:
 
     def test_run_msf_returnerer_dict(self, plaxis_connection):
         g_o    = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
         phases = list(g_o.Phases)[:1]
 
         result = run_msf(g_o, phases)
@@ -150,6 +160,8 @@ class TestResultEkstraksjon:
 
     def test_run_msf_verdi_er_tallet_eller_none(self, plaxis_connection):
         g_o   = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
         phases = list(g_o.Phases)[:1]
         result = run_msf(g_o, phases)
 
@@ -160,6 +172,8 @@ class TestResultEkstraksjon:
     def test_run_capacity_returnerer_krefter_for_plate(self, plaxis_connection):
         g_i  = plaxis_connection["g_i"]
         g_o  = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
         info = extract_model_info(g_i)
 
         plates = info["structures"]["plates"]
@@ -184,6 +198,8 @@ class TestResultEkstraksjon:
     def test_run_displacement_returnerer_verdier(self, plaxis_connection):
         g_i  = plaxis_connection["g_i"]
         g_o  = plaxis_connection["g_o"]
+        if g_o is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
         info = extract_model_info(g_i)
 
         plates = info["structures"]["plates"]
@@ -206,6 +222,9 @@ class TestFullRunner:
 
     def test_full_kjøring_lykkes(self, plaxis_connection, tmp_path):
         from activities.plaxis.runner.runner import run_plaxis_extraction
+
+        if plaxis_connection["g_o"] is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
 
         g_i  = plaxis_connection["g_i"]
         info = extract_model_info(g_i)
@@ -266,6 +285,9 @@ class TestFullRunner:
 
     def test_framdrift_starter_paa_0_og_ender_paa_100(self, plaxis_connection, tmp_path):
         from activities.plaxis.runner.runner import run_plaxis_extraction
+
+        if plaxis_connection["g_o"] is None:
+            pytest.skip("Plaxis Output ikke tilgjengelig")
 
         g_i  = plaxis_connection["g_i"]
         info = extract_model_info(g_i)

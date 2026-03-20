@@ -75,18 +75,37 @@ def plaxis_connection(request):
 
     s_i, g_i = new_server("localhost", int(port), password=password)
 
+    s_o, g_o, actual_out_port = None, None, None
+
     if out_port:
-        s_o, g_o = new_server("localhost", int(out_port), password=password)
+        # Brukeren har oppgitt en eksplisitt Output-port — bruk den direkte
+        actual_out_port = int(out_port)
+        s_o, g_o = new_server("localhost", actual_out_port, password=password)
     else:
-        view_port = g_i.view(g_i.Phases[0])
-        s_o, g_o  = new_server("localhost", view_port, password=password)
+        # Prøv å åpne Output via g_i.view() — fungerer bare hvis Plaxis Output
+        # er startet med full scripting-støtte (ikke bare "phase viewer"-modus).
+        try:
+            view_port = g_i.view(g_i.Phases[0])
+            actual_out_port = view_port
+            s_o, g_o_candidate = new_server("localhost", view_port, password=password)
+            # Verifiser at g_o faktisk støtter Phases-spørring
+            _ = list(g_o_candidate.Phases)
+            g_o = g_o_candidate
+            s_o = s_o
+        except Exception as exc:
+            # Output-scripting er ikke tilgjengelig — g_o forblir None.
+            # Tester som trenger g_o vil selv kalle pytest.skip().
+            print(
+                f"\n[conftest] Plaxis Output ikke tilgjengelig via g_i.view(): {exc}\n"
+                f"           Kjør med --plaxis-out-port <port> for full Output-testing."
+            )
 
     return {
         "s_i":      s_i,
         "g_i":      g_i,
         "s_o":      s_o,
-        "g_o":      g_o,
+        "g_o":      g_o,          # None hvis Output-scripting ikke er tilgjengelig
         "port":     int(port),
         "password": password,
-        "out_port": int(out_port) if out_port else None,
+        "out_port": actual_out_port,
     }
