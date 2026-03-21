@@ -30,15 +30,20 @@ _DB_PATH     = os.path.join(_BACKEND_DIR, 'ramgap.db')
 
 DATABASE_URL: str = os.getenv('DATABASE_URL', f'sqlite:///{_DB_PATH}')
 
-# For Azure SQL, set DATABASE_URL env var:
-#   mssql+pyodbc://user:pw@server.database.windows.net:1433/db?driver=ODBC+Driver+18+for+SQL+Server
+# For Azure PostgreSQL Flexible Server, set DATABASE_URL to:
+#   postgresql://adminuser:Password@server.postgres.database.azure.com:5432/ramgap?sslmode=require
 
 # ---------------------------------------------------------------------------
 # Engine & session factory
 # ---------------------------------------------------------------------------
-_connect_args = {'check_same_thread': False} if 'sqlite' in DATABASE_URL else {}
+_is_sqlite = DATABASE_URL.startswith('sqlite')
+_connect_args = {'check_same_thread': False} if _is_sqlite else {}
+_engine_kwargs: dict = {'connect_args': _connect_args, 'echo': False}
+if not _is_sqlite:
+    # Connection pool settings for shared cloud database
+    _engine_kwargs.update({'pool_size': 5, 'max_overflow': 10, 'pool_pre_ping': True})
 
-engine = create_engine(DATABASE_URL, connect_args=_connect_args, echo=False)
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Session      = scoped_session(SessionLocal)

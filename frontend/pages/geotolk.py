@@ -10,6 +10,10 @@ Multi-step workflow for interpreting SND ground-investigation files:
 
 import sys
 import os
+import io as _io
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import streamlit as st
 
 # Ensure frontend/ root is importable (needed when Streamlit runs pages/ directly)
@@ -159,16 +163,22 @@ def _init_layers(file_entry: dict):
     """Set a default 3-layer split for a file."""
     md = file_entry["parsed_data"].get("max_depth", 10)
     st.session_state.geotolk_layers = [
-        {"type": "leire", "start": 0.0,       "end": md / 3},
-        {"type": "sand",  "start": md / 3,    "end": 2 * md / 3},
+        {"type": "leire", "start": 0.0,        "end": md / 3},
+        {"type": "sand",  "start": md / 3,     "end": 2 * md / 3},
         {"type": "fjell", "start": 2 * md / 3, "end": md},
     ]
 
 
+def _clear_layer_ss(n: int):
+    """Remove old widget session keys so they re-initialise from layers."""
+    for j in range(n + 2):
+        for prefix in ("gt_top_", "gt_bot_", "gt_type_", "gt_rng_"):
+            st.session_state.pop(f"{prefix}{j}", None)
+
+
+@st.fragment
 def show_step3():
     """Step 3: Interactive depth-profile chart and layer boundary editor."""
-    import plotly.graph_objects as go
-
     files = st.session_state.geotolk_files
     if not files:
         st.warning("Ingen filer å tolke")
@@ -176,6 +186,8 @@ def show_step3():
 
     idx = st.session_state.geotolk_current_file
     cur = files[idx]
+    parsed    = cur["parsed_data"]
+    max_depth = float(parsed.get("max_depth", 10))
 
     # File navigation
     cn1, cn2, cn3 = st.columns([1, 3, 1])
@@ -184,6 +196,7 @@ def show_step3():
             files[idx]["layers"] = st.session_state.geotolk_layers
             st.session_state.geotolk_current_file = idx - 1
             prev = files[idx - 1]
+            _clear_layer_ss(len(st.session_state.geotolk_layers))
             if prev.get("layers"):
                 st.session_state.geotolk_layers = prev["layers"]
             else:
@@ -196,124 +209,138 @@ def show_step3():
             files[idx]["layers"] = st.session_state.geotolk_layers
             st.session_state.geotolk_current_file = idx + 1
             nxt = files[idx + 1]
+            _clear_layer_ss(len(st.session_state.geotolk_layers))
             if nxt.get("layers"):
                 st.session_state.geotolk_layers = nxt["layers"]
             else:
                 _init_layers(nxt)
             st.rerun()
 
+    layers = st.session_state.geotolk_layers
+    n = len(layers)
+
+    # ------------------------------------------------------------------ PRE-APPLY
+    # Initialise session-state keys on first render, then read them back into
+    # layers BEFORE building the chart so the chart is always in sync.
+    for i, lay in enumerate(layers):
+        if f"gt_type_{i}" not in st.session_state:
+            st.session_state[f"gt_type_{i}"] = lay["type"]
+        if f"gt_top_{i}" not in st.session_state:
+            st.session_state[f"gt_top_{i}"] = float(lay["start"])
+        if f"gt_bot_{i}" not in st.session_state:
+            st.session_state[f"gt_bot_{i}"] = float(lay["end"])
+
+    for i in range(n):
+        layers[i]["type"]  = st.session_state[f"gt_type_{i}"]
+        layers[i]["start"] = float(st.session_state[f"gt_top_{i}"])
+        layers[i]["end"]   = float(st.session_state[f"gt_bot_{i}"])
+
+    # Enforce hard limits and cascade adjacency top→bottom
+    layers[0]["start"] = 0.0;       st.session_state["gt_top_0"] = 0.0
+    layers[-1]["end"]  = max_depth; st.session_state[f"gt_bot_{n-1}"] = max_depth
+    for i in range(n - 1):
+        adj = layers[i]["end"]
+        if abs(layers[i + 1]["start"] - adj) > 0.001:
+            layers[i + 1]["start"] = adj
+            st.session_state[f"gt_top_{i + 1}"] = adj
+    for i in range(n):
+        if layers[i]["start"] >= layers[i]["end"]:
+            layers[i]["end"] = min(layers[i]["start"] + 0.05, max_depth)
+            st.session_state[f"gt_bot_{i}"] = layers[i]["end"]
+
+    st.session_state.geotolk_layers = layers
+
+    # -------------------------------------------------------------------- CHART
+    max_x = max(parsed.get("c2", [1000])) or 1000
+    fig, ax = plt.subplots(figsize=(5, 10))
+    for lay in layers:
+        chex = GEOTOLK_COLORS.get(lay["type"], "#DDDDDD")
+        rgb  = tuple(int(chex.lstrip("#")[j:j+2], 16) / 255 for j in (0, 2, 4))
+        ax.axhspan(lay["start"], lay["end"], alpha=0.3, color=rgb, zorder=1)
+        mid = (lay["start"] + lay["end"]) / 2
+        ax.text(max_x * 0.02, mid, lay["type"], fontsize=9, va="center", color="#333", zorder=3)
+
+    depths, c2vals = list(parsed.get("depth", [])), list(parsed.get("c2", []))
+    if len(depths) > 500:
+        s = len(depths) // 500
+        depths, c2vals = depths[::s], c2vals[::s]
+    if depths:
+        ax.plot(c2vals, depths, "k-", linewidth=1.5, zorder=2)
+
+    for i in range(n - 1):
+        ax.axhline(y=layers[i]["end"], color="red", linewidth=2, linestyle="--", zorder=4)
+
+    for s, e in parsed.get("spyling", []):
+        ax.barh([(s+e)/2], [max_x*0.05], left=0,           height=e-s, alpha=0.5, color="blue", zorder=2)
+    for s, e in parsed.get("slag", []):
+        ax.barh([(s+e)/2], [max_x*0.05], left=max_x*0.05,  height=e-s, alpha=0.5, color="red",  zorder=2)
+
+    ax.set_xlabel("Motstand", fontsize=10)
+    ax.set_ylabel("Dybde (m)", fontsize=10)
+    ax.set_xlim(0, max_x); ax.set_ylim(max_depth, 0)
+    ax.grid(True, alpha=0.3, linestyle=":")
+    plt.tight_layout(pad=0.5)
+    buf = _io.BytesIO()
+    fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
+    plt.close(fig); buf.seek(0)
+
+    # ------------------------------------------------------------------- LAYOUT
     col_plot, col_edit = st.columns([2, 1])
 
     with col_plot:
-        parsed    = cur["parsed_data"]
-        max_depth = parsed.get("max_depth", 10)
-        layers    = st.session_state.geotolk_layers
-        fig       = go.Figure()
-
-        # Coloured background bands per layer
-        for i, lay in enumerate(layers):
-            color = GEOTOLK_COLORS.get(lay["type"], "#DDDDDD")
-            fig.add_hrect(y0=lay["start"], y1=lay["end"],
-                          fillcolor=color, opacity=0.3, line_width=0,
-                          annotation_text=f"{i + 1}. {lay['type']}",
-                          annotation_position="left")
-
-        # Resistance trace (downsampled for performance)
-        depths = parsed["depth"]
-        c2vals = parsed["c2"]
-        if len(depths) > 500:
-            step   = len(depths) // 500
-            depths = depths[::step]
-            c2vals = c2vals[::step]
-        fig.add_trace(go.Scatter(
-            x=c2vals, y=depths, mode="lines", name="Motstand",
-            line=dict(color="black", width=1.5), hoverinfo="skip",
-        ))
-
-        # Layer boundary lines
-        max_x = max(parsed["c2"]) if parsed["c2"] else 1000
-        for i in range(len(layers) - 1):
-            fig.add_shape(type="line", x0=0, x1=max_x,
-                          y0=layers[i]["end"], y1=layers[i]["end"],
-                          line=dict(color="red", width=2, dash="dash"))
-
-        # Spyling / slag markers
-        for s, e in parsed.get("spyling", []):
-            fig.add_vrect(x0=0, x1=max_x * 0.05, y0=s, y1=e,
-                          fillcolor="blue", opacity=0.5)
-        for s, e in parsed.get("slag", []):
-            fig.add_vrect(x0=max_x * 0.05, x1=max_x * 0.1, y0=s, y1=e,
-                          fillcolor="red", opacity=0.5)
-
-        fig.update_layout(
-            xaxis_title="Motstand",
-            yaxis_title="Dybde (m)",
-            yaxis_autorange="reversed",
-            height=700,
-            showlegend=False,
-            margin=dict(l=50, r=10, t=10, b=30),
-            xaxis=dict(fixedrange=True),
-            yaxis=dict(fixedrange=True),
-        )
-        st.plotly_chart(fig, use_container_width=True,
-                        config={"displayModeBar": False, "staticPlot": True})
+        st.image(buf, use_container_width=True)
         st.caption("🔵 Spyling | 🔴 Slag | 🔴- - - Laggrenser")
 
     with col_edit:
         st.markdown("#### Lagdeling")
-        st.caption(f"Max dybde: {max_depth:.2f} m")
-        layers = st.session_state.geotolk_layers
+        st.caption(f"Total dybde: {max_depth:.2f} m")
 
-        # Material-type selector per layer
-        st.markdown("**Lagtyper:**")
         for i, lay in enumerate(layers):
-            ci, ct = st.columns([1, 4])
-            with ci:
-                st.markdown(f"**{i + 1}.**")
-            with ct:
-                new_type = st.selectbox(
-                    f"Lag {i + 1}",
-                    GEOTOLK_MATERIALS,
-                    index=GEOTOLK_MATERIALS.index(lay["type"])
-                          if lay["type"] in GEOTOLK_MATERIALS else 0,
-                    key=f"ltype_{i}",
-                    label_visibility="collapsed",
-                )
-                layers[i]["type"] = new_type
-
-        st.markdown("---")
-        st.markdown("**Grenser (dra for å justere):**")
-        st.caption("Topp: 0.00 m")
-
-        for i in range(len(layers) - 1):
-            min_v = layers[i]["start"] + 0.1
-            max_v = layers[i + 1]["end"] - 0.1
-            cur_v = max(min_v, min(float(layers[i]["end"]), max_v))
-            new_b = st.slider(
-                f"Grense {i + 1}→{i + 2}",
-                min_value=0.0, max_value=float(max_depth),
-                value=cur_v, step=0.05, key=f"bnd_{i}",
+            color = GEOTOLK_COLORS.get(lay["type"], "#DDDDDD")
+            st.markdown(
+                f'<span style="display:inline-block;width:12px;height:12px;'
+                f'background:{color};border:1px solid #888;border-radius:2px;'
+                f'vertical-align:middle;margin-right:6px"></span>'
+                f'<strong>Lag {i + 1}</strong>',
+                unsafe_allow_html=True,
             )
-            layers[i]["end"]       = new_b
-            layers[i + 1]["start"] = new_b
-
-        st.caption(f"Bunn: {max_depth:.2f} m")
-        layers[0]["start"]  = 0.0
-        layers[-1]["end"]   = float(max_depth)
-        st.session_state.geotolk_layers = layers
+            st.selectbox(
+                "Materiale", GEOTOLK_MATERIALS,
+                index=GEOTOLK_MATERIALS.index(lay["type"]) if lay["type"] in GEOTOLK_MATERIALS else 0,
+                key=f"gt_type_{i}", label_visibility="collapsed",
+            )
+            cur_s = float(max(0.0, lay["start"]))
+            cur_e = float(min(max_depth, lay["end"]))
+            if cur_s >= cur_e:
+                cur_e = min(cur_s + 0.05, max_depth)
+            rng = st.slider(
+                f"Dybde lag {i + 1}",
+                min_value=0.0, max_value=max_depth,
+                value=(cur_s, cur_e),
+                step=0.05,
+                key=f"gt_rng_{i}",
+                label_visibility="collapsed",
+            )
+            layers[i]["start"] = float(rng[0])
+            layers[i]["end"]   = float(rng[1])
+            # keep number-input keys in sync so pre-apply is consistent
+            st.session_state[f"gt_top_{i}"] = float(rng[0])
+            st.session_state[f"gt_bot_{i}"] = float(rng[1])
+            st.caption(f"Fra **{rng[0]:.2f} m** → Til **{rng[1]:.2f} m**")
+            if i < n - 1:
+                st.divider()
 
         st.markdown("---")
-        # Remove-layer buttons
-        st.markdown("**Fjern lag:**")
-        del_cols = st.columns(len(layers))
+        del_cols = st.columns(n)
         for i, dc in enumerate(del_cols):
             with dc:
-                if st.button(f"✖ {i + 1}", key=f"del_{i}", disabled=len(layers) <= 1):
-                    if i < len(layers) - 1:
+                if st.button(f"✖ {i + 1}", key=f"del_{i}", disabled=n <= 1):
+                    if i < n - 1:
                         layers[i + 1]["start"] = layers[i]["start"]
                     else:
                         layers[i - 1]["end"] = layers[i]["end"]
                     layers.pop(i)
+                    _clear_layer_ss(n)
                     st.session_state.geotolk_layers = layers
                     st.rerun()
 
@@ -322,13 +349,15 @@ def show_step3():
                 last = layers[-1]
                 mid  = (last["start"] + last["end"]) / 2
                 last["end"] = mid
-                layers.append({"type": "annet", "start": mid, "end": float(max_depth)})
+                layers.append({"type": "annet", "start": mid, "end": max_depth})
             else:
-                layers.append({"type": "annet", "start": 0.0, "end": float(max_depth)})
+                layers.append({"type": "annet", "start": 0.0, "end": max_depth})
+            _clear_layer_ss(n)
             st.session_state.geotolk_layers = layers
             st.rerun()
 
         if st.button("🔄 Auto 3 lag", use_container_width=True):
+            _clear_layer_ss(n)
             _init_layers(cur)
             st.rerun()
 
@@ -355,7 +384,7 @@ def show_step3():
         if st.button(f"✓ Fullfør ({done}/{len(files)} tolket)", use_container_width=True):
             if done > 0:
                 st.session_state.geotolk_step  = 1
-                st.session_state.geotolk_files = []
+                st.session_state.geotolk_files  = []
                 st.session_state.geotolk_layers = []
                 st.success("Tolkningsøkt fullført!")
                 st.switch_page("app.py")
@@ -392,14 +421,3 @@ def main():
 
 
 main()
-
-import streamlit as st
-from components.sidebar import render_sidebar
-
-st.set_page_config(page_title="GeoTolk — RamGAP", layout="wide")
-
-render_sidebar()
-
-st.title("GeoTolk")
-st.write("Geotechnical file upload and visualization will be implemented here.")
-# TODO: file uploader, depth-profile chart, interpretation controls

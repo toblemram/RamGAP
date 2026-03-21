@@ -9,6 +9,7 @@ are separate pages, navigated to via st.switch_page().
 
 import sys
 import os
+import threading
 import streamlit as st
 
 # Ensure frontend/ root is importable from both app.py and pages/
@@ -83,18 +84,36 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=60)
 def _cached_calculations(project_id, limit):
     return api.get_plaxis_calculations(project_id=project_id, limit=limit)
 
 
+@st.cache_data(ttl=30)
+def _cached_projects(username: str) -> list:
+    return api.get_projects(username)
+
+
+@st.cache_data(ttl=15)
+def _cached_health() -> bool:
+    return api.is_healthy()
+
+
 def _log_project(project_id: int, atype: str, aname: str):
     _cached_calculations.clear()
-    api.log_project_activity(project_id, USERNAME, atype, aname)
+    threading.Thread(
+        target=api.log_project_activity,
+        args=(project_id, USERNAME, atype, aname),
+        daemon=True,
+    ).start()
 
 
 def _log_activity(atype: str, aname: str):
-    api.log_activity(USERNAME, atype, aname)
+    threading.Thread(
+        target=api.log_activity,
+        args=(USERNAME, atype, aname),
+        daemon=True,
+    ).start()
 
 
 # Initialize session state
@@ -305,8 +324,8 @@ def show_project_view():
 
 
 # Plaxis and GeoTolk workflows have been moved to separate Streamlit pages:
-#   frontend/pages/2_Plaxis.py
-#   frontend/pages/3_GeoTolk.py
+#   frontend/pages/plaxis.py
+#   frontend/pages/geotolk.py
 
 
 def show_project_setup():
@@ -337,6 +356,7 @@ def show_project_setup():
                 
                 if result.get('id') or result.get('project'):
                     st.success(f"✅ Prosjekt '{project_name}' opprettet!")
+                    _cached_projects.clear()
                     _log_activity('project', f'Opprettet: {project_name}')
                     st.rerun()
                 else:
@@ -346,7 +366,7 @@ def show_project_setup():
     st.markdown("---")
     st.markdown("### Dine prosjekter")
     
-    projects = api.get_projects(USERNAME)
+    projects = _cached_projects(USERNAME)
     if projects:
         for project in projects:
             with st.expander(f"📁 {project['name']}", expanded=False):
@@ -367,49 +387,23 @@ def show_home():
     st.markdown(f'<div class="greeting">Hei, {USERNAME}! 👋</div>', unsafe_allow_html=True)
     st.markdown("")
 
-    col1, col2 = st.columns([3, 1])
+    st.subheader("📁 Prosjekter")
 
-    with col1:
-        st.subheader("📁 Prosjekter")
-
-        projects = api.get_projects(USERNAME)
-        if projects:
-            for project in projects:
-                col_card, col_btn = st.columns([5, 1])
-                with col_card:
-                    st.markdown(
-                        f'<div class="project-shortcut">'
-                        f'<div class="project-title">📁 {project["name"]}</div>'
-                        f'<div class="project-desc">{project.get("description") or "Ingen beskrivelse"}</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-                with col_btn:
-                    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
-                    if st.button("Åpne →", key=f"project_{project['id']}", use_container_width=True):
-                        st.session_state.selected_project = project
-                        st.session_state.current_page = 'project_view'
-                        _log_activity('project', f"Åpnet: {project['name']}")
-                        st.rerun()
-        else:
-            st.info("Ingen prosjekter ennå. Gå til **Prosjektsetup** i menyen for å opprette et.")
-
-    with col2:
-        st.subheader("🕐 Siste aktivitet")
-
-        activities = api.get_recent_activity(USERNAME, limit=6)
-        if activities:
-            for activity in activities:
-                timestamp = activity.get('timestamp', '')[:10] if activity.get('timestamp') else ''
-                st.markdown(
-                    f'<div class="activity-item">'
-                    f'<strong>{activity.get("activity_name", "")}</strong><br>'
-                    f'<small>{activity.get("activity_type", "")} · {timestamp}</small>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.caption("Ingen aktivitet registrert ennå")
+    projects = _cached_projects(USERNAME)
+    if projects:
+        for project in projects:
+            desc = project.get('description') or 'Ingen beskrivelse'
+            if st.button(
+                f"📁 {project['name']}   —   {desc}",
+                key=f"project_{project['id']}",
+                use_container_width=True,
+            ):
+                st.session_state.selected_project = project
+                st.session_state.current_page = 'project_view'
+                _log_activity('project', f"Åpnet: {project['name']}")
+                st.rerun()
+    else:
+        st.info("Ingen prosjekter ennå. Gå til **Prosjektsetup** i menyen for å opprette et.")
 
 
 def main():
@@ -440,7 +434,7 @@ def main():
         # Backend status
         st.divider()
         st.subheader("System Status")
-        if api.is_healthy():
+        if _cached_health():
             st.success("✅ Backend tilkoblet")
         else:
             st.warning("⚠️ Backend ikke tilgjengelig")

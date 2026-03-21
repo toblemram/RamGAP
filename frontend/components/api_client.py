@@ -16,8 +16,6 @@ import requests
 from typing import Any, Dict, List, Optional
 
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:5050')
-TIMEOUT_SHORT  = 5    # seconds — used for lightweight reads
-TIMEOUT_LONG   = 300  # seconds — used for Plaxis calculations
 
 
 class APIClient:
@@ -26,21 +24,21 @@ class APIClient:
     def __init__(self, base_url: str = BACKEND_URL):
         self.base_url = base_url.rstrip('/')
 
-    def _get(self, path: str, params: dict = None, timeout: int = TIMEOUT_SHORT) -> dict:
+    def _get(self, path: str, params: dict = None, timeout: int = None) -> dict:
         try:
             r = requests.get(f'{self.base_url}{path}', params=params, timeout=timeout)
             return r.json() if r.ok else {'error': r.text}
         except requests.RequestException as exc:
             return {'error': str(exc)}
 
-    def _post(self, path: str, payload: dict = None, timeout: int = TIMEOUT_SHORT) -> dict:
+    def _post(self, path: str, payload: dict = None, timeout: int = None) -> dict:
         try:
             r = requests.post(f'{self.base_url}{path}', json=payload, timeout=timeout)
             return r.json() if r.ok else {'error': r.text}
         except requests.RequestException as exc:
             return {'error': str(exc)}
 
-    def _delete(self, path: str, params: dict = None, timeout: int = TIMEOUT_SHORT) -> dict:
+    def _delete(self, path: str, params: dict = None, timeout: int = None) -> dict:
         try:
             r = requests.delete(f'{self.base_url}{path}', params=params, timeout=timeout)
             return r.json() if r.ok else {'error': r.text}
@@ -117,7 +115,7 @@ class APIClient:
         return self._get('/api/plaxis/model-info', {'session_id': session_id}, timeout=30)
 
     def plaxis_run(self, payload: dict) -> dict:
-        return self._post('/api/plaxis/run', payload, timeout=TIMEOUT_LONG)
+        return self._post('/api/plaxis/run', payload, timeout=300)
 
     def get_plaxis_calculations(self, project_id: Optional[int] = None,
                                  limit: int = 10) -> List[dict]:
@@ -134,7 +132,7 @@ class APIClient:
             'session_id': session_id,
             'input_password': input_password,
             'output_password': output_password or input_password,
-        }, timeout=TIMEOUT_LONG)
+        }, timeout=300)
 
     # ------------------------------------------------------------------
     # GeoTolk

@@ -12,9 +12,10 @@ streamlit-plotly-events>=0.0.6
 requests>=2.31.0
 plotly>=5.18.0
 
-# Database - Azure SQL (for later migration)
-# pyodbc>=4.0.0
-# azure-identity>=1.14.0
+# Database drivers
+psycopg2-binary>=2.9.0  # Azure PostgreSQL / any PostgreSQL
+# pyodbc>=4.0.0          # Azure SQL (MSSQL) — requires system ODBC driver
+# azure-identity>=1.14.0 # Azure managed identity auth
 
 # Development
 python-dotenv>=1.0.0
