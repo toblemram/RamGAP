@@ -14,6 +14,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 from core.database import init_db
+from shared.auth import init_api_key_middleware
 from activities.plaxis.routes    import plaxis_bp
 from activities.geotolk.routes   import geotolk_bp
 from activities.projects.routes  import projects_bp
@@ -25,6 +26,7 @@ from activities.modeling.routes  import modeling_bp
 
 app = Flask(__name__)
 CORS(app)
+init_api_key_middleware(app)
 
 # Register activity Blueprints
 app.register_blueprint(plaxis_bp)

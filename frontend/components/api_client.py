@@ -16,6 +16,7 @@ import requests
 from typing import Any, Dict, List, Optional
 
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:5050')
+_API_KEY = os.getenv('API_KEY', '')
 
 
 class APIClient:
@@ -23,24 +24,28 @@ class APIClient:
 
     def __init__(self, base_url: str = BACKEND_URL):
         self.base_url = base_url.rstrip('/')
+        self._headers = {'X-API-Key': _API_KEY} if _API_KEY else {}
 
     def _get(self, path: str, params: dict = None, timeout: int = None) -> dict:
         try:
-            r = requests.get(f'{self.base_url}{path}', params=params, timeout=timeout)
+            r = requests.get(f'{self.base_url}{path}', params=params,
+                             headers=self._headers, timeout=timeout)
             return r.json() if r.ok else {'error': r.text}
         except requests.RequestException as exc:
             return {'error': str(exc)}
 
     def _post(self, path: str, payload: dict = None, timeout: int = None) -> dict:
         try:
-            r = requests.post(f'{self.base_url}{path}', json=payload, timeout=timeout)
+            r = requests.post(f'{self.base_url}{path}', json=payload,
+                              headers=self._headers, timeout=timeout)
             return r.json() if r.ok else {'error': r.text}
         except requests.RequestException as exc:
             return {'error': str(exc)}
 
     def _delete(self, path: str, params: dict = None, timeout: int = None) -> dict:
         try:
-            r = requests.delete(f'{self.base_url}{path}', params=params, timeout=timeout)
+            r = requests.delete(f'{self.base_url}{path}', params=params,
+                                headers=self._headers, timeout=timeout)
             return r.json() if r.ok else {'error': r.text}
         except requests.RequestException as exc:
             return {'error': str(exc)}
@@ -52,7 +57,8 @@ class APIClient:
     def is_healthy(self) -> bool:
         """Return True if the backend responds to the health check."""
         try:
-            r = requests.get(f'{self.base_url}/api/health', timeout=1)
+            r = requests.get(f'{self.base_url}/api/health',
+                             headers=self._headers, timeout=1)
             return r.status_code == 200
         except requests.RequestException:
             return False
