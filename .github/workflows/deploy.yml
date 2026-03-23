@@ -43,13 +43,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Create antenv virtualenv for Azure
-        run: |
-          cd frontend
-          python -m venv antenv
-          source antenv/bin/activate
-          pip install streamlit>=1.36.0 streamlit-plotly-events>=0.0.6 requests>=2.31.0 plotly>=5.18.0
-
       - name: Deploy frontend til Azure App Service
         uses: azure/webapps-deploy@v3
         with:
