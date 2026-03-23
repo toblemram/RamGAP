@@ -4,6 +4,9 @@ on:
   push:
     branches: [ master ]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
@@ -19,6 +22,8 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run unit tests
+        env:
+          PYTHONPATH: backend
         run: python -m pytest tests/unit/ -v
 
       - name: Deploy backend til Azure App Service

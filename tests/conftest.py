@@ -5,8 +5,14 @@ Pytest Fixtures
 Delte fixtures tilgjengelig for alle tester i test-suiten.
 """
 
+import sys
+import os
 import pytest
-from backend.app import app as flask_app
+
+# Make sure backend/ is on the path so tests can import directly
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
+
+from app import app as flask_app
 
 
 # ---------------------------------------------------------------------------
