@@ -22,6 +22,7 @@ try:
     from plxscripting.easy import new_server
     PLAXIS_AVAILABLE = True
 except ImportError:
+    new_server = None  # type: ignore[assignment]
     PLAXIS_AVAILABLE = False
 
 from activities.plaxis.extraction.result_extractor import run_capacity, run_msf, run_displacement
