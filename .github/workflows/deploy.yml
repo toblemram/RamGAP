@@ -34,7 +34,7 @@ jobs:
       - name: Deploy backend til Azure App Service
         uses: azure/webapps-deploy@v3
         with:
-          app-name: app-ramgap-backend-fshfhrgjaaefe0c0
+          app-name: app-ramgap-backend
           publish-profile: ${{ secrets.AZURE_BACKEND_PUBLISH_PROFILE }}
           package: .
 
