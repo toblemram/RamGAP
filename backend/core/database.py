@@ -37,7 +37,7 @@ DATABASE_URL: str = os.getenv('DATABASE_URL', f'sqlite:///{_DB_PATH}')
 # Engine & session factory
 # ---------------------------------------------------------------------------
 _is_sqlite = DATABASE_URL.startswith('sqlite')
-_connect_args = {'check_same_thread': False} if _is_sqlite else {}
+_connect_args = {'check_same_thread': False} if _is_sqlite else {'connect_timeout': 5}
 _engine_kwargs: dict = {'connect_args': _connect_args, 'echo': False}
 if not _is_sqlite:
     # Connection pool settings for shared cloud database

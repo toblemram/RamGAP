@@ -156,3 +156,75 @@ class APIClient:
             'parsed_data': parsed_data,
             'layers': layers,
         })
+
+    # ------------------------------------------------------------------
+    # Modeling
+    # ------------------------------------------------------------------
+
+    def get_modeling_activities(self, project_id: int) -> List[dict]:
+        result = self._get('/api/modeling/activities', {'project_id': project_id})
+        return result.get('activities', [])
+
+    def create_modeling_activity(self, project_id: int, name: str,
+                                  username: str) -> dict:
+        return self._post('/api/modeling/activities', {
+            'project_id': project_id,
+            'name': name,
+            'username': username,
+        })
+
+    def delete_modeling_activity(self, activity_id: int) -> dict:
+        try:
+            r = requests.delete(
+                f'{self.base_url}/api/modeling/activities/{activity_id}',
+                timeout=10,
+            )
+            return r.json() if r.ok else {'error': r.text}
+        except requests.RequestException as exc:
+            return {'error': str(exc)}
+
+    def upload_modeling_excel(self, activity_id: int,
+                               file_bytes: bytes, filename: str) -> dict:
+        try:
+            r = requests.post(
+                f'{self.base_url}/api/modeling/activities/{activity_id}/upload/excel',
+                files={'file': (filename, file_bytes,
+                                'application/vnd.openxmlformats-officedocument'
+                                '.spreadsheetml.sheet')},
+                timeout=60,
+            )
+            return r.json() if r.ok else {'error': r.text}
+        except requests.RequestException as exc:
+            return {'error': str(exc)}
+
+    def upload_modeling_results(self, activity_id: int,
+                                 report_bytes: bytes,
+                                 summary_bytes: bytes = None,
+                                 ifc_bytes: bytes = None,
+                                 ifc_filename: str = 'model.ifc') -> dict:
+        files: dict = {
+            'report': ('run-report.json', report_bytes, 'application/json'),
+        }
+        if summary_bytes:
+            files['summary'] = ('run-summary.md', summary_bytes, 'text/markdown')
+        if ifc_bytes:
+            files['ifc'] = (ifc_filename, ifc_bytes, 'application/octet-stream')
+        try:
+            r = requests.post(
+                f'{self.base_url}/api/modeling/activities/{activity_id}/upload/results',
+                files=files,
+                timeout=120,
+            )
+            return r.json() if r.ok else {'error': r.text}
+        except requests.RequestException as exc:
+            return {'error': str(exc)}
+
+    def get_modeling_results(self, activity_id: int) -> dict:
+        return self._get(f'/api/modeling/activities/{activity_id}/results')
+
+    def get_modeling_download_url(self, activity_id: int,
+                                   file_type: str) -> dict:
+        """file_type: 'excel' or 'ifc'"""
+        return self._get(
+            f'/api/modeling/activities/{activity_id}/download/{file_type}'
+        )

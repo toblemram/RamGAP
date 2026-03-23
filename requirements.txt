@@ -14,6 +14,7 @@ plotly>=5.18.0
 
 # Database drivers
 psycopg2-binary>=2.9.0  # Azure PostgreSQL / any PostgreSQL
+azure-storage-blob>=12.19.0  # Azure Blob Storage (IFC, Excel, DWG)
 # pyodbc>=4.0.0          # Azure SQL (MSSQL) — requires system ODBC driver
 # azure-identity>=1.14.0 # Azure managed identity auth
 

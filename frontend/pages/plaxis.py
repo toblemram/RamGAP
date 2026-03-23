@@ -21,12 +21,21 @@ if _HERE not in sys.path:
 
 from components.api_client import APIClient
 
+from components.sidebar import render_sidebar
+
 st.set_page_config(
-    page_title="RamGAP - Plaxis",
+    page_title="RamGAP",
     page_icon="🔧",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
+
+# Hide Streamlit's auto-generated pages navigation
+st.markdown("""
+<style>
+    [data-testid="stSidebarNav"] { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 def _get_username() -> str:
@@ -479,6 +488,7 @@ def _run_calculation(output_path: str, generate_excel: bool):
 # ----------------------------------------------------------------------- page
 
 def main():
+    render_sidebar()
     st.markdown("# 🔧 Plaxis Automatisering")
 
     proj = st.session_state.selected_project
@@ -508,14 +518,4 @@ def main():
 
 
 main()
-
-import streamlit as st
-from components.sidebar import render_sidebar
-
-st.set_page_config(page_title="Plaxis — RamGAP", layout="wide")
-
-render_sidebar()
-
-st.title("Plaxis")
-st.write("Plaxis connection and result extraction will be implemented here.")
 # TODO: connect form, model-info display, extraction job form, results table

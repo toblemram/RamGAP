@@ -28,6 +28,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
 EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-large")
 
+# --- Azure Blob Storage ---
+AZURE_STORAGE_CONNECTION_STRING = os.getenv('AZURE_STORAGE_CONNECTION_STRING', '')
+AZURE_STORAGE_CONTAINER         = os.getenv('AZURE_STORAGE_CONTAINER', 'project-files')
+AZURE_STORAGE_TEMP_CONTAINER    = os.getenv('AZURE_STORAGE_TEMP_CONTAINER', 'temp-uploads')
+
 # --- Knowledge Base ---
 KNOWLEDGE_DIR  = os.getenv("KNOWLEDGE_DIR", "plaxis_knowledge")
 FAISS_IDX_FULL  = os.getenv("FAISS_IDX_FULL",  "faiss_full.index")

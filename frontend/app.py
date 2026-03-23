@@ -24,7 +24,7 @@ st.set_page_config(
     page_title="RamGAP",
     page_icon="🏗️",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -80,6 +80,27 @@ st.markdown("""
         padding: 0.5rem 0;
         border-bottom: 1px solid #eee;
     }
+    .project-card {
+        background: #f8faff;
+        border: 1px solid #dce8ff;
+        border-radius: 10px;
+        padding: 1rem 1.2rem;
+        margin-bottom: 1rem;
+    }
+    .activity-row {
+        font-size: 0.85rem;
+        color: #444;
+        padding: 2px 0;
+        line-height: 1.6;
+    }
+    .act-user {
+        color: #1E88E5;
+        font-weight: 600;
+    }
+    .act-ts {
+        color: #999;
+        font-size: 0.78rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -97,6 +118,11 @@ def _cached_projects(username: str) -> list:
 @st.cache_data(ttl=15)
 def _cached_health() -> bool:
     return api.is_healthy()
+
+
+@st.cache_data(ttl=30)
+def _cached_project_activities(project_id: int, limit: int = 3) -> list:
+    return api.get_project_activities(project_id, limit)
 
 
 def _log_project(project_id: int, atype: str, aname: str):
@@ -279,7 +305,32 @@ def show_project_view():
                             else:
                                 st.warning("Oppgi passord først")
         else:
-            st.info("Ingen aktiviteter ennå. Start en ny aktivitet til høyre!")
+            st.info("Ingen Plaxis-aktiviteter ennå.")
+
+        # --- Modeling activities ---
+        st.markdown("### 🏗️ Modellering-aktiviteter")
+        modeling_acts = api.get_modeling_activities(project['id'])
+        if modeling_acts:
+            for mact in modeling_acts:
+                m_status = mact.get('status', 'active')
+                m_icon = {'active': '🟡', 'has_excel': '🟠', 'has_results': '🟢'}.get(m_status, '❓')
+                m_label = {'active': 'Ingen filer', 'has_excel': 'Excel lastet opp', 'has_results': 'Resultater klar'}.get(m_status, m_status)
+                m_name = mact.get('name', '')
+                m_ts = (mact.get('created_at') or '')[:10]
+
+                with st.expander(f"{m_icon} {m_name} — {m_label}"):
+                    st.caption(f"Dato: {m_ts}")
+                    if mact.get('has_excel'):
+                        st.write(f"📊 Excel: {mact.get('excel_filename', '')}")
+                    if mact.get('has_ifc'):
+                        st.write(f"📐 IFC: {mact.get('ifc_filename', '')}")
+                    if mact.get('has_results'):
+                        st.success("✅ Optimeringsresultater tilgjengelig")
+                    if st.button("Åpne i Modellering →", key=f"open_mod_{mact['id']}", use_container_width=True):
+                        st.session_state.modeling_activity_id = mact['id']
+                        st.switch_page("pages/modellering.py")
+        else:
+            st.info("Ingen modellering-aktiviteter ennå.")
     
     with col2:
         st.markdown("### 🚀 Start ny aktivitet")
@@ -307,12 +358,36 @@ def show_project_view():
 
         if st.button("🏗️ Modellering", use_container_width=True, key="btn_modellering"):
             _log_project(project['id'], 'Modellering', 'Modellering startet')
-            st.success("Modellering startet! (Demo)")
+            st.switch_page("pages/modellering.py")
 
         if st.button("📄 Rapport", use_container_width=True, key="btn_rapport"):
             _log_project(project['id'], 'Rapport', 'Rapport generering startet')
             st.success("Rapport generering startet! (Demo)")
     
+    # Recent activity log (all types: Plaxis, GeoTolk, Modellering, etc.)
+    st.markdown("---")
+    st.markdown("### 📋 Siste aktiviteter")
+    recent_activities = _cached_project_activities(project['id'], 10)
+    if recent_activities:
+        type_icons = {
+            'Plaxis': '🔧', 'GeoTolk': '🗺️',
+            'project': '📁', 'Regneark': '📊',
+            'Modellering': '🏗️', 'Rapport': '📄',
+        }
+        for act in recent_activities:
+            ts   = (act.get('timestamp') or '')[:16]
+            icon = type_icons.get(act.get('activity_type', ''), '📌')
+            name = act.get('activity_name', '')
+            user = act.get('username', '')
+            st.markdown(
+                f'<div class="activity-row">{icon} {name} '
+                f'— <span class="act-user">{user}</span> '
+                f'<span class="act-ts">{ts}</span></div>',
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("Ingen aktiviteter logget ennå.")
+
     # Project info
     st.markdown("---")
     with st.expander("ℹ️ Prosjektinformasjon"):
@@ -328,9 +403,109 @@ def show_project_view():
 #   frontend/pages/geotolk.py
 
 
+# ---------------------------------------------------------------------------
+# Dummy module pages
+# ---------------------------------------------------------------------------
+
+def show_geogpt():
+    """GeoGPT — placeholder page"""
+    st.title("🤖 GeoGPT")
+    st.markdown("---")
+    st.info(
+        "**GeoGPT** er en AI-assistent spesialisert for geoteknikk.\n\n"
+        "Her vil du kunne stille spørsmål om geotekniske standarder, "
+        "tolke grunnundersøkelser, og få hjelp med beregninger.\n\n"
+        "_Funksjonalitet er under utvikling._"
+    )
+    st.markdown("#### Planlagte funksjoner")
+    st.markdown("""
+    - 💬 Chat-grensesnitt for geotekniske spørsmål  
+    - 📄 Opplasting og analyse av rapporter  
+    - 🔗 Kobling mot prosjektdata i RamGAP  
+    - 📚 Søk i standarder og normer  
+    """)
+
+
+def show_standarder():
+    """Standarder — placeholder page"""
+    st.title("📚 Standarder")
+    st.markdown("---")
+    st.info(
+        "Her finner du relevante tekniske standarder og normer for geoteknikk og peling.\n\n"
+        "_Funksjonalitet er under utvikling._"
+    )
+    st.markdown("#### Planlagte standarder")
+    st.markdown("""
+    - NS-EN 1997 (Eurocode 7) — Geoteknisk prosjektering  
+    - NS-EN 12699 — Utførelse av spesielle geotekniske arbeider  
+    - NS-EN 14199 — Mikropeler  
+    - NGF-veiledninger  
+    """)
+
+
+def show_excel_ark():
+    """Excel-ark — placeholder page"""
+    st.title("📊 Excel-ark")
+    st.markdown("---")
+    st.info(
+        "Her finner du standardiserte Excel-ark for beregninger og dokumentasjon.\n\n"
+        "_Funksjonalitet er under utvikling._"
+    )
+    st.markdown("#### Planlagte regneark")
+    st.markdown("""
+    - 🏗️ Ramme- og pelekapasitet  
+    - 📐 Setningsberegning  
+    - 🔩 Forankringskapasitet  
+    - 📋 Grunnundersøkelses-sammenstilling  
+    """)
+
+
+def show_ramgap_endringer():
+    """RamGAP endringer og versjoner — placeholder page"""
+    st.title("🔄 RamGAP endringer og versjoner")
+    st.markdown("---")
+    st.info(
+        "Oversikt over endringer, fikser og nye funksjoner i RamGAP.\n\n"
+        "_Full endringslogg kommer._"
+    )
+    st.markdown("#### Siste endringer")
+    with st.expander("v0.1 — Utviklingsversjon (2026)", expanded=True):
+        st.markdown("""
+        - ✅ Plaxis-automatisering (5 nivåer)  
+        - ✅ GeoTolk SND-tolking  
+        - ✅ Prosjektstyring med tilgangskontroll  
+        - ✅ Aktivitetslogg per prosjekt  
+        - 🚧 GeoGPT, Standarder, Excel-ark (kommer)  
+        """)
+
+
+def show_opplaering():
+    """Opplæring — placeholder page"""
+    st.title("🎓 Opplæring")
+    st.markdown("---")
+    st.info(
+        "Kurs og opplæringsmateriell for bruk av RamGAP.\n\n"
+        "_Innhold er under utvikling._"
+    )
+    st.markdown("#### Planlagte moduler")
+    st.markdown("""
+    - 🟢 Kom i gang med RamGAP  
+    - 🔧 Plaxis-automatisering trinn for trinn  
+    - 🗺️ GeoTolk — tolking av sonderinger  
+    - 🤖 Bruk av GeoGPT  
+    """)
+
+
+# ---------------------------------------------------------------------------
+
+
 def show_project_setup():
     """Show project setup page"""
-    st.subheader("🛠️ Prosjektsetup")
+    if st.button("← Tilbake til oversikt"):
+        st.session_state.current_page = 'home'
+        st.rerun()
+
+    st.subheader("⚙️ Prosjekt innstillinger")
     st.markdown("---")
     
     st.markdown("### Opprett nytt prosjekt")
@@ -383,27 +558,52 @@ def show_project_setup():
 
 
 def show_home():
-    """Show home page — greeting + project shortcuts + recent activity"""
+    """Show home page — all projects with description and 3 last activities"""
     st.markdown(f'<div class="greeting">Hei, {USERNAME}! 👋</div>', unsafe_allow_html=True)
     st.markdown("")
-
-    st.subheader("📁 Prosjekter")
+    st.subheader("📁 Mine prosjekter")
 
     projects = _cached_projects(USERNAME)
-    if projects:
-        for project in projects:
-            desc = project.get('description') or 'Ingen beskrivelse'
-            if st.button(
-                f"📁 {project['name']}   —   {desc}",
-                key=f"project_{project['id']}",
-                use_container_width=True,
-            ):
-                st.session_state.selected_project = project
-                st.session_state.current_page = 'project_view'
-                _log_activity('project', f"Åpnet: {project['name']}")
-                st.rerun()
-    else:
-        st.info("Ingen prosjekter ennå. Gå til **Prosjektsetup** i menyen for å opprette et.")
+    if not projects:
+        st.info("Ingen prosjekter ennå. Gå til **Prosjekt innstillinger** i menyen for å opprette et.")
+        return
+
+    for project in projects:
+        with st.container():
+            col_info, col_btn = st.columns([5, 1])
+            with col_info:
+                st.markdown(f"**📁 {project['name']}**")
+                st.caption(project.get('description') or 'Ingen beskrivelse')
+
+                activities = _cached_project_activities(project['id'], 3)
+                if activities:
+                    type_icons = {
+                        'Plaxis': '🔧', 'GeoTolk': '🗺️',
+                        'project': '📁', 'Regneark': '📊',
+                        'Modellering': '🏗️',
+                    }
+                    for act in activities:
+                        ts   = (act.get('timestamp') or '')[:10]
+                        icon = type_icons.get(act.get('activity_type', ''), '📌')
+                        name = act.get('activity_name', '')
+                        user = act.get('username', '')
+                        st.markdown(
+                            f'<div class="activity-row">{icon} {name} '
+                            f'— <span class="act-user">{user}</span> '
+                            f'<span class="act-ts">{ts}</span></div>',
+                            unsafe_allow_html=True,
+                        )
+                else:
+                    st.caption('_Ingen aktivitet ennå_')
+
+            with col_btn:
+                st.markdown("&nbsp;", unsafe_allow_html=True)
+                if st.button("Åpne →", key=f"open_{project['id']}", use_container_width=True):
+                    st.session_state.selected_project = project
+                    st.session_state.current_page = 'project_view'
+                    _log_activity('project', f"Åpnet: {project['name']}")
+                    st.rerun()
+        st.divider()
 
 
 def main():
@@ -412,39 +612,56 @@ def main():
     # Header
     st.markdown('<div class="main-header">RamGAP</div>', unsafe_allow_html=True)
     
-    # Sidebar
+    # Sidebar — persistent navigation
     with st.sidebar:
-        st.header("Navigasjon")
-        
-        # Navigation buttons - uten logging for hastighet
-        if st.button("🏠 Hjem", use_container_width=True):
-            st.session_state.current_page = 'home'
-            st.rerun()
-        
-        if st.button("🛠️ Prosjektsetup", use_container_width=True):
-            st.session_state.current_page = 'project_setup'
-            st.rerun()
-        
+        st.markdown("### 🏗️ RamGAP")
         st.divider()
-        
-        # User info
-        st.subheader("👤 Bruker")
-        st.write(f"Innlogget som: **{USERNAME}**")
-        
-        # Backend status
+
+        nav_items = [
+            ('home',             '🏠', 'Prosjekter'),
+            ('geogpt',           '🤖', 'GeoGPT'),
+            ('standarder',       '📚', 'Standarder'),
+            ('excel_ark',        '📊', 'Excel-ark'),
+            ('ramgap_endringer', '🔄', 'Endringer og versjoner'),
+            ('opplaering',       '🎓', 'Opplæring'),
+            ('project_setup',    '⚙️', 'Prosjekt innstillinger'),
+        ]
+        cur = st.session_state.current_page
+        for page_key, icon, label in nav_items:
+            btn_type = 'primary' if cur == page_key else 'secondary'
+            if st.button(
+                f"{icon}  {label}",
+                key=f"nav_{page_key}",
+                use_container_width=True,
+                type=btn_type,
+            ):
+                st.session_state.current_page = page_key
+                st.session_state.selected_project = None
+                st.rerun()
+
         st.divider()
-        st.subheader("System Status")
+        st.caption(f"👤 **{USERNAME}**")
         if _cached_health():
-            st.success("✅ Backend tilkoblet")
+            st.success("✅ Backend OK", icon=None)
         else:
-            st.warning("⚠️ Backend ikke tilgjengelig")
-            st.caption("Start backend med: python backend/app.py")
-    
-    # Route to correct page (Plaxis and GeoTolk are now separate Streamlit pages)
-    if st.session_state.current_page == 'project_setup':
+            st.warning("⚠️ Backend utilgjengelig")
+
+    # Route to the correct page
+    page = st.session_state.current_page
+    if page == 'project_setup':
         show_project_setup()
-    elif st.session_state.current_page == 'project_view':
+    elif page == 'project_view':
         show_project_view()
+    elif page == 'geogpt':
+        show_geogpt()
+    elif page == 'standarder':
+        show_standarder()
+    elif page == 'excel_ark':
+        show_excel_ark()
+    elif page == 'ramgap_endringer':
+        show_ramgap_endringer()
+    elif page == 'opplaering':
+        show_opplaering()
     else:
         show_home()
     

@@ -23,12 +23,21 @@ if _HERE not in sys.path:
 
 from components.api_client import APIClient
 
+from components.sidebar import render_sidebar
+
 st.set_page_config(
-    page_title="RamGAP - GeoTolk",
+    page_title="RamGAP",
     page_icon="🗺️",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
+
+# Hide Streamlit's auto-generated pages navigation
+st.markdown("""
+<style>
+    [data-testid="stSidebarNav"] { display: none !important; }
+</style>
+""", unsafe_allow_html=True)
 
 
 def _get_username() -> str:
@@ -395,6 +404,7 @@ def show_step3():
 # ----------------------------------------------------------------------- page
 
 def main():
+    render_sidebar()
     st.markdown("# 🗺️ GeoTolk")
 
     proj      = st.session_state.selected_project

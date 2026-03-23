@@ -287,3 +287,54 @@ class GeoTolkInterpretation(Base):
             'created_at':    self.created_at.isoformat()     if self.created_at     else None,
             'interpreted_at': self.interpreted_at.isoformat() if self.interpreted_at else None,
         }
+
+
+# ---------------------------------------------------------------------------
+# Modeling activity
+# ---------------------------------------------------------------------------
+
+class ModelingActivity(Base):
+    """
+    A modeling activity linked to a project.
+    Stores an Excel input file and GH optimization results (JSON, MD, IFC).
+    Files are stored in Azure Blob Storage; only blob names are kept here.
+    """
+    __tablename__ = 'modeling_activities'
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)
+    name       = Column(String(255), nullable=False)
+    username   = Column(String(255), nullable=False)
+
+    # 'active' | 'has_excel' | 'has_results'
+    status = Column(String(50), nullable=False, default='active')
+
+    # Blob Storage references
+    excel_blob_name = Column(String(500), nullable=True)
+    excel_filename  = Column(String(255), nullable=True)
+    ifc_blob_name   = Column(String(500), nullable=True)
+    ifc_filename    = Column(String(255), nullable=True)
+
+    # Optimization results stored as text
+    run_report_json = Column(Text, nullable=True)   # full run-report.json content
+    run_summary_md  = Column(Text, nullable=True)   # run-summary.md content
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            'id':             self.id,
+            'project_id':     self.project_id,
+            'name':           self.name,
+            'username':       self.username,
+            'status':         self.status,
+            'has_excel':      bool(self.excel_blob_name),
+            'has_ifc':        bool(self.ifc_blob_name),
+            'has_results':    bool(self.run_report_json),
+            'excel_filename': self.excel_filename,
+            'ifc_filename':   self.ifc_filename,
+            'created_at':     self.created_at.isoformat() if self.created_at else None,
+            'updated_at':     self.updated_at.isoformat() if self.updated_at else None,
+        }
