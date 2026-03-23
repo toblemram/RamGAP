@@ -27,6 +27,7 @@ jobs:
         run: python -m pytest tests/unit/ -v
 
       - name: Deploy backend til Azure App Service
+        if: ${{ secrets.AZURE_BACKEND_PUBLISH_PROFILE != '' }}
         uses: azure/webapps-deploy@v3
         with:
           app-name: app-ramgap-backend
@@ -40,6 +41,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy frontend til Azure App Service
+        if: ${{ secrets.AZURE_FRONTEND_PUBLISH_PROFILE != '' }}
         uses: azure/webapps-deploy@v3
         with:
           app-name: app-ramgap-frontend
