@@ -18,18 +18,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run unit tests
+      - name: Install dependencies and run tests
         env:
           PYTHONPATH: backend
-        run: python -m pytest tests/unit/ -v
+        run: |
+          pip install -r requirements.txt
+          python -m pytest tests/unit/ -v
+
+      - name: Create antenv virtualenv for Azure
+        run: |
+          python -m venv antenv
+          source antenv/bin/activate
+          pip install -r requirements.txt
 
       - name: Deploy backend til Azure App Service
         uses: azure/webapps-deploy@v3
         with:
-          app-name: app-ramgap-backend
+          app-name: app-ramgap-backend-fshfhrgjaaefe0c0
           publish-profile: ${{ secrets.AZURE_BACKEND_PUBLISH_PROFILE }}
           package: .
 
@@ -39,9 +44,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Create antenv virtualenv for Azure
+        run: |
+          cd frontend
+          python -m venv antenv
+          source antenv/bin/activate
+          pip install streamlit>=1.36.0 streamlit-plotly-events>=0.0.6 requests>=2.31.0 plotly>=5.18.0
+
       - name: Deploy frontend til Azure App Service
         uses: azure/webapps-deploy@v3
         with:
-          app-name: app-ramgap-frontend
+          app-name: app-ramgap-frontend-fshfhrgjaaefe0c0
           publish-profile: ${{ secrets.AZURE_FRONTEND_PUBLISH_PROFILE }}
           package: ./frontend

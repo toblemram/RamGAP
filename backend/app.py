@@ -82,5 +82,5 @@ if __name__ == '__main__':
         host=os.getenv('HOST', '0.0.0.0'),
         port=int(os.getenv('PORT', '5050')),
         # Prevent the reloader from watching the virtual environment directory
-        exclude_patterns=['*\.venv\*', '*/.venv/*', '*\__pycache__\*'],
+        exclude_patterns=[r'*\.venv\*', '*/.venv/*', r'*\__pycache__\*'],
     )
