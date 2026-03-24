@@ -23,8 +23,6 @@ if _HERE not in sys.path:
 
 from components.api_client import APIClient
 
-from components.sidebar import render_sidebar
-
 st.set_page_config(
     page_title="RamGAP",
     page_icon="🗺️",
@@ -404,7 +402,6 @@ def show_step3():
 # ----------------------------------------------------------------------- page
 
 def main():
-    render_sidebar()
     st.markdown("# 🗺️ GeoTolk")
 
     proj      = st.session_state.selected_project

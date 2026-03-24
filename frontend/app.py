@@ -9,6 +9,7 @@ are separate pages, navigated to via st.switch_page().
 
 import sys
 import os
+import datetime
 import threading
 import streamlit as st
 
@@ -18,6 +19,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from components.api_client import APIClient
+from components.bug_report import show_feedback_dialog
 
 # Page config — must be the first Streamlit call
 st.set_page_config(
@@ -557,8 +559,52 @@ def show_project_setup():
 
 
 
+def _is_first_visit(username: str) -> bool:
+    """Return True if this is the user's first time opening RamGAP on this machine."""
+    marker = os.path.join(os.path.expanduser("~"), f".ramgap_welcomed_{username}")
+    return not os.path.exists(marker)
+
+
+def _mark_welcomed(username: str):
+    """Write marker file so the welcome message is not shown again."""
+    marker = os.path.join(os.path.expanduser("~"), f".ramgap_welcomed_{username}")
+    try:
+        with open(marker, "w") as f:
+            f.write(datetime.datetime.now().isoformat())
+    except OSError:
+        pass
+
+
+@st.dialog("👋 Velkommen til RamGAP!", width="large")
+def _welcome_dialog(username: str):
+    st.markdown(
+        "**RamGAP** er et internt verktøy for geotekniske beregninger og prosjektstyring. "
+        "Her finner du:\n\n"
+        "- 🔧 **Plaxis-automatisering** — kjør og hent ut resultater fra Plaxis-modeller\n"
+        "- 🗺️ **GeoTolk** — last opp og tolk SND-sonderinger\n"
+        "- 🏗️ **Modellering** — administrer og optimer konstruksjonsmodeller\n"
+        "- 📁 **Prosjektstyring** — hold oversikt over alle aktiviteter per prosjekt\n\n"
+        "---\n\n"
+        "**Spørsmål eller behov for hjelp?**  \n"
+        "Ta kontakt med **Kristoffer Aamodt** eller **Tobias Lemminger**.\n\n"
+        "Oppdager du en feil, eller har du forslag til forbedringer?  \n"
+        "Bruk **💬 Tilbakemelding / Forslag**-knappen i menyen til venstre — det tar bare ett minutt!"
+    )
+    if st.button("✅ Forstått, kom i gang!", type="primary", use_container_width=True):
+        _mark_welcomed(username)
+        st.rerun()
+
+
+def show_welcome_if_first_visit(username: str):
+    """Trigger the welcome popup the first time a user opens the app."""
+    if _is_first_visit(username) and not st.session_state.get("_welcome_dismissed"):
+        st.session_state["_welcome_dismissed"] = True
+        _welcome_dialog(username)
+
+
 def show_home():
     """Show home page — all projects with description and 3 last activities"""
+    show_welcome_if_first_visit(USERNAME)
     st.markdown(f'<div class="greeting">Hei, {USERNAME}! 👋</div>', unsafe_allow_html=True)
     st.markdown("")
     st.subheader("📁 Mine prosjekter")
@@ -639,6 +685,8 @@ def main():
                 st.session_state.selected_project = None
                 st.rerun()
 
+        st.divider()
+        show_feedback_dialog(USERNAME)
         st.divider()
         st.caption(f"👤 **{USERNAME}**")
         if _cached_health():

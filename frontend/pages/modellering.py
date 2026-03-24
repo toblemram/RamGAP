@@ -21,7 +21,6 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from components.api_client import APIClient
-from components.sidebar import render_sidebar
 
 st.set_page_config(
     page_title='RamGAP',
@@ -189,7 +188,6 @@ def _build_charts(report: dict):
 
 def main():
     st.title('🏗️ Modellering')
-    render_sidebar()
     st.markdown('---')
 
     project = _project()
