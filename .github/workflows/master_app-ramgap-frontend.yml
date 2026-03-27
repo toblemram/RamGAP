@@ -4,10 +4,16 @@
 
 name: Build and deploy Python app to Azure Web App - app-ramgap-frontend
 
+# DEAKTIVERT: Denne workflowen konflikter med deploy.yml som deployer
+# kun ./frontend. Begge deployer til samme Azure App Service, noe som
+# gir uforutsigbar filstruktur. Bruk deploy.yml i stedet.
+# Fjern kommentarene nedenfor for å reaktivere.
+#on:
+#  push:
+#    branches:
+#      - master
+#  workflow_dispatch:
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 jobs:

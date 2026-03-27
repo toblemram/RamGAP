@@ -22,7 +22,10 @@ from dotenv import load_dotenv
 
 # Load .env from the project root (two levels up from this file)
 _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '.env')
-load_dotenv(_ENV_PATH, override=False)
+try:
+    load_dotenv(_ENV_PATH, override=False)
+except Exception:
+    pass
 
 _REPO = "toblemram/RamGAP"
 _GITHUB_API = f"https://api.github.com/repos/{_REPO}/issues"
@@ -216,6 +219,13 @@ def show_feedback_dialog(username: str):
     Renders the feedback button + inline form in the sidebar.
     Call this from the sidebar block in app.py.
     """
+    try:
+        _show_feedback_dialog_inner(username)
+    except Exception as exc:
+        st.error(f"Tilbakemeldingsknapp feilet: {exc}")
+
+
+def _show_feedback_dialog_inner(username: str):
     if st.button("💬 Tilbakemelding / Forslag", use_container_width=True, key="open_feedback"):
         st.session_state["_feedback_open"] = not st.session_state.get("_feedback_open", False)
 
