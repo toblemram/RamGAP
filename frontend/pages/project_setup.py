@@ -5,9 +5,9 @@ from components.api_client import APIClient
 
 api = APIClient()
 
-from components.auth import get_username
+from components.auth import require_username
 
-USERNAME = get_username()
+USERNAME = require_username()
 
 def main():
     if st.button("← Tilbake til oversikt"):

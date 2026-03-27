@@ -36,9 +36,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-from components.auth import get_username
+from components.auth import require_username
 
-USERNAME = get_username()
+USERNAME = require_username()
 api = APIClient()
 
 # -------------------------------------------------------------- session state

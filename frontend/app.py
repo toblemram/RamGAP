@@ -18,7 +18,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from components.api_client import APIClient
-from components.auth import get_username
+from components.auth import require_username
 from components.bug_report import show_feedback_dialog
 
 # Page config — must be the first Streamlit call
@@ -29,7 +29,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-USERNAME = get_username()
+USERNAME = require_username()
 api = APIClient()
 
 # Custom CSS
