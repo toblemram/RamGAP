@@ -9,7 +9,7 @@ Import from here instead of reading os.environ directly in other modules.
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 # --- Server ---
 DEBUG = os.getenv("DEBUG", "true").lower() == "true"

@@ -43,8 +43,10 @@ st.markdown("""
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:5050')
 
 
+from components.auth import get_username
+
 def _username() -> str:
-    return os.environ.get('USERNAME', os.environ.get('USER', 'User'))
+    return get_username()
 
 
 def _api() -> APIClient:

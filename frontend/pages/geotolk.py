@@ -38,14 +38,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-def _get_username() -> str:
-    try:
-        return os.getlogin()
-    except OSError:
-        return os.environ.get("USERNAME", os.environ.get("USER", "User"))
+from components.auth import get_username
 
-
-USERNAME = _get_username()
+USERNAME = get_username()
 api = APIClient()
 
 # Soil material colours used in the depth-profile chart

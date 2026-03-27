@@ -17,9 +17,12 @@ Usage:
 """
 
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from core.models import Base
+
+load_dotenv(override=True)
 
 # ---------------------------------------------------------------------------
 # Database URL
