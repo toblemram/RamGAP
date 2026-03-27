@@ -9,7 +9,6 @@ are separate pages, navigated to via st.switch_page().
 
 import sys
 import os
-import datetime
 import threading
 import streamlit as st
 
@@ -307,32 +306,7 @@ def show_project_view():
                             else:
                                 st.warning("Oppgi passord først")
         else:
-            st.info("Ingen Plaxis-aktiviteter ennå.")
-
-        # --- Modeling activities ---
-        st.markdown("### 🏗️ Modellering-aktiviteter")
-        modeling_acts = api.get_modeling_activities(project['id'])
-        if modeling_acts:
-            for mact in modeling_acts:
-                m_status = mact.get('status', 'active')
-                m_icon = {'active': '🟡', 'has_excel': '🟠', 'has_results': '🟢'}.get(m_status, '❓')
-                m_label = {'active': 'Ingen filer', 'has_excel': 'Excel lastet opp', 'has_results': 'Resultater klar'}.get(m_status, m_status)
-                m_name = mact.get('name', '')
-                m_ts = (mact.get('created_at') or '')[:10]
-
-                with st.expander(f"{m_icon} {m_name} — {m_label}"):
-                    st.caption(f"Dato: {m_ts}")
-                    if mact.get('has_excel'):
-                        st.write(f"📊 Excel: {mact.get('excel_filename', '')}")
-                    if mact.get('has_ifc'):
-                        st.write(f"📐 IFC: {mact.get('ifc_filename', '')}")
-                    if mact.get('has_results'):
-                        st.success("✅ Optimeringsresultater tilgjengelig")
-                    if st.button("Åpne i Modellering →", key=f"open_mod_{mact['id']}", use_container_width=True):
-                        st.session_state.modeling_activity_id = mact['id']
-                        st.switch_page("pages/modellering.py")
-        else:
-            st.info("Ingen modellering-aktiviteter ennå.")
+            st.info("Ingen aktiviteter ennå. Start en ny aktivitet til høyre!")
     
     with col2:
         st.markdown("### 🚀 Start ny aktivitet")
@@ -559,52 +533,8 @@ def show_project_setup():
 
 
 
-def _is_first_visit(username: str) -> bool:
-    """Return True if this is the user's first time opening RamGAP on this machine."""
-    marker = os.path.join(os.path.expanduser("~"), f".ramgap_welcomed_{username}")
-    return not os.path.exists(marker)
-
-
-def _mark_welcomed(username: str):
-    """Write marker file so the welcome message is not shown again."""
-    marker = os.path.join(os.path.expanduser("~"), f".ramgap_welcomed_{username}")
-    try:
-        with open(marker, "w") as f:
-            f.write(datetime.datetime.now().isoformat())
-    except OSError:
-        pass
-
-
-@st.dialog("👋 Velkommen til RamGAP!", width="large")
-def _welcome_dialog(username: str):
-    st.markdown(
-        "**RamGAP** er et internt verktøy for geotekniske beregninger og prosjektstyring. "
-        "Her finner du:\n\n"
-        "- 🔧 **Plaxis-automatisering** — kjør og hent ut resultater fra Plaxis-modeller\n"
-        "- 🗺️ **GeoTolk** — last opp og tolk SND-sonderinger\n"
-        "- 🏗️ **Modellering** — administrer og optimer konstruksjonsmodeller\n"
-        "- 📁 **Prosjektstyring** — hold oversikt over alle aktiviteter per prosjekt\n\n"
-        "---\n\n"
-        "**Spørsmål eller behov for hjelp?**  \n"
-        "Ta kontakt med **Kristoffer Aamodt** eller **Tobias Lemminger**.\n\n"
-        "Oppdager du en feil, eller har du forslag til forbedringer?  \n"
-        "Bruk **💬 Tilbakemelding / Forslag**-knappen i menyen til venstre — det tar bare ett minutt!"
-    )
-    if st.button("✅ Forstått, kom i gang!", type="primary", use_container_width=True):
-        _mark_welcomed(username)
-        st.rerun()
-
-
-def show_welcome_if_first_visit(username: str):
-    """Trigger the welcome popup the first time a user opens the app."""
-    if _is_first_visit(username) and not st.session_state.get("_welcome_dismissed"):
-        st.session_state["_welcome_dismissed"] = True
-        _welcome_dialog(username)
-
-
 def show_home():
     """Show home page — all projects with description and 3 last activities"""
-    show_welcome_if_first_visit(USERNAME)
     st.markdown(f'<div class="greeting">Hei, {USERNAME}! 👋</div>', unsafe_allow_html=True)
     st.markdown("")
     st.subheader("📁 Mine prosjekter")
