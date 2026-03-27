@@ -23,7 +23,7 @@ from components.bug_report import show_feedback_dialog
 
 # Page config — must be the first Streamlit call
 st.set_page_config(
-    page_title="RamGAP",
+    page_title="RamGAP1",
     page_icon="🏗️",
     layout="wide",
     initial_sidebar_state="expanded",
