@@ -9,56 +9,25 @@ optimeringsresultater (run-report.json) og nedlasting av Excel/IFC.
 
 import json
 import os
-import sys
 
 import pandas as pd
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-
-_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _HERE not in sys.path:
-    sys.path.insert(0, _HERE)
-
+from components.auth import require_username
 from components.api_client import APIClient
 
-st.set_page_config(
-    page_title='RamGAP',
-    page_icon='🏗️',
-    layout='wide',
-    initial_sidebar_state='expanded',
-)
+USERNAME = require_username()
+api = APIClient()
 
-# Hide Streamlit's auto-generated pages navigation
-st.markdown("""
-<style>
-    [data-testid="stSidebarNav"] { display: none !important; }
-</style>
-""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:5050')
-
-
-from components.auth import require_username
-
-def _username() -> str:
-    return require_username()
-
-
-def _api() -> APIClient:
-    return APIClient()
-
 
 def _project() -> dict | None:
     return st.session_state.get('selected_project')
-
-
-def _go_home():
-    st.switch_page('app.py')
 
 
 # ---------------------------------------------------------------------------
@@ -196,14 +165,11 @@ def main():
     if not project:
         st.warning('Velg et prosjekt fra forsiden først.')
         if st.button('← Til forsiden'):
-            _go_home()
+            st.switch_page('pages/home.py')
         return
 
     st.markdown(f'**Prosjekt:** {project["name"]}')
     st.markdown('---')
-
-    api      = _api()
-    username = _username()
 
     # -----------------------------------------------------------------------
     # Initialiser session state
@@ -227,12 +193,12 @@ def main():
                     st.warning('Skriv inn et navn.')
                 else:
                     result = api.create_modeling_activity(
-                        project['id'], new_name.strip(), username
+                        project['id'], new_name.strip(), USERNAME
                     )
                     if 'activity' in result:
                         st.session_state.modeling_activity_id = result['activity']['id']
                         api.log_project_activity(
-                            project['id'], username,
+                            project['id'], USERNAME,
                             'Modellering', f'Aktivitet opprettet: {new_name.strip()}'
                         )
                         st.success(f'Aktivitet "{new_name}" opprettet.')
@@ -357,7 +323,7 @@ def main():
     # Tilbake-knapp
     st.markdown('---')
     if st.button('← Tilbake til prosjekt'):
-        _go_home()
+        st.switch_page('pages/home.py')
 
 
 main()
