@@ -30,13 +30,14 @@ class Project(Base):
     """A RamGAP project that groups activities together."""
     __tablename__ = 'projects'
 
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    name        = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    created_by  = Column(String(255), nullable=False)  # Windows username
-    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    is_active   = Column(Boolean, default=True)
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(255), nullable=False)
+    description   = Column(Text, nullable=True)
+    created_by    = Column(String(255), nullable=False)  # Windows username
+    project_owner = Column(String(255), nullable=True)   # Prosjektansvarlig
+    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    is_active     = Column(Boolean, default=True)
 
     access_list = relationship(
         'ProjectAccess', back_populates='project', cascade='all, delete-orphan'
@@ -44,13 +45,14 @@ class Project(Base):
 
     def to_dict(self):
         return {
-            'id':           self.id,
-            'name':         self.name,
-            'description':  self.description,
-            'created_by':   self.created_by,
-            'created_at':   self.created_at.isoformat() if self.created_at else None,
-            'updated_at':   self.updated_at.isoformat() if self.updated_at else None,
-            'is_active':    self.is_active,
+            'id':            self.id,
+            'name':          self.name,
+            'description':   self.description,
+            'created_by':    self.created_by,
+            'project_owner': self.project_owner or self.created_by,
+            'created_at':    self.created_at.isoformat() if self.created_at else None,
+            'updated_at':    self.updated_at.isoformat() if self.updated_at else None,
+            'is_active':     self.is_active,
             'allowed_users': [a.username for a in self.access_list] if self.access_list else [],
         }
 

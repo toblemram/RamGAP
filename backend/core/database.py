@@ -31,7 +31,7 @@ load_dotenv(override=True)
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DB_PATH     = os.path.join(_BACKEND_DIR, 'ramgap.db')
 
-DATABASE_URL: str = os.getenv('DATABASE_URL', f'sqlite:///{_DB_PATH}')
+DATABASE_URL: str = os.getenv('DATABASE_URL') or f'sqlite:///{_DB_PATH}'
 
 # For Azure PostgreSQL Flexible Server, set DATABASE_URL to:
 #   postgresql://adminuser:Password@server.postgres.database.azure.com:5432/ramgap?sslmode=require
@@ -59,6 +59,19 @@ Session      = scoped_session(SessionLocal)
 def init_db() -> None:
     """Create all tables if they do not exist yet."""
     Base.metadata.create_all(bind=engine)
+
+    # Migrate: add project_owner column if missing (SQLite doesn't auto-add)
+    from sqlalchemy import inspect as sa_inspect, text
+    insp = sa_inspect(engine)
+    if 'projects' in insp.get_table_names():
+        cols = [c['name'] for c in insp.get_columns('projects')]
+        if 'project_owner' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE projects ADD COLUMN project_owner VARCHAR(255)'
+                ))
+            print('Migration: added project_owner column to projects')
+
     print('Database initialized successfully')
 
 

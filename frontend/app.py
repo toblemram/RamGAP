@@ -51,6 +51,7 @@ pg = st.navigation(
         ],
         "System": [
             st.Page("pages/project_setup.py", title="Prosjektinnstillinger", icon="⚙️"),
+            st.Page("pages/prosjekt_endringer.py", title="Prosjekt endringer", icon="📝"),
             st.Page("pages/ramgap_endringer.py", title="Endringslogg", icon="🔄"),
         ],
     }
