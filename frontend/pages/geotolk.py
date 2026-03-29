@@ -8,37 +8,13 @@ Multi-step workflow for interpreting SND ground-investigation files:
   Step 3 -- Visual interpretation: assign soil layers with boundary sliders
 """
 
-import sys
-import os
 import io as _io
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import streamlit as st
-
-# Ensure frontend/ root is importable (needed when Streamlit runs pages/ directly)
-_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _HERE not in sys.path:
-    sys.path.insert(0, _HERE)
-
-from components.api_client import APIClient
-
-st.set_page_config(
-    page_title="RamGAP",
-    page_icon="🗺️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# Hide Streamlit's auto-generated pages navigation
-st.markdown("""
-<style>
-    [data-testid="stSidebarNav"] { display: none !important; }
-</style>
-""", unsafe_allow_html=True)
-
-
 from components.auth import require_username
+from components.api_client import APIClient
 
 USERNAME = require_username()
 api = APIClient()
@@ -389,7 +365,7 @@ def show_step3():
                 st.session_state.geotolk_files  = []
                 st.session_state.geotolk_layers = []
                 st.success("Tolkningsøkt fullført!")
-                st.switch_page("app.py")
+                st.switch_page("pages/home.py")
             else:
                 st.warning("Lagre minst én tolkning før du fullfører")
 
@@ -404,7 +380,7 @@ def main():
     if st.button(back_label):
         st.session_state.geotolk_step  = 1
         st.session_state.geotolk_files = []
-        st.switch_page("app.py")
+        st.switch_page("pages/home.py")
 
     # Step progress indicator
     steps   = ["1. Oppsett", "2. Last opp filer", "3. Tolkning"]

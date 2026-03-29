@@ -105,53 +105,7 @@ def _collect_context(username: str) -> dict:
     }
 
 
-def _format_issue_body(description: str, steps: str, ctx: dict, screenshot_note: str) -> str:
-    lines = [
-        "## Beskrivelse",
-        description,
-        "",
-        "## Steg for å gjenskape",
-        steps if steps.strip() else "_Ikke oppgitt_",
-        "",
-        "## Automatisk diagnostikk",
-        "| Felt | Verdi |",
-        "|------|-------|",
-    ]
-    for k, v in ctx.items():
-        lines.append(f"| {k} | {v} |")
-
-    if screenshot_note:
-        lines += ["", "## Skjermbilde", screenshot_note]
-
-    lines += ["", "---", "_Sendt automatisk fra RamGAP bug-rapportknapp_"]
-    return "\n".join(lines)
-
-
-def _create_github_issue(title: str, body: str, token: str) -> tuple[bool, str]:
-    """POST to GitHub Issues API. Returns (success, message)."""
-    if not token:
-        return False, "GITHUB_TOKEN er ikke satt (se .env)"
-    try:
-        r = requests.post(
-            _GITHUB_API,
-            json={"title": title, "body": body, "labels": ["bug"]},
-            headers={
-                "Authorization": f"token {token}",
-                "Accept": "application/vnd.github+json",
-            },
-            timeout=10,
-        )
-        if r.status_code == 201:
-            url = r.json().get("html_url", "")
-            return True, url
-        else:
-            return False, f"GitHub svarte {r.status_code}: {r.text[:200]}"
-    except requests.RequestException as exc:
-        return False, str(exc)
-
-
-
-# --- Ny tilbakemeldingsdialog ---
+# --- Tilbakemeldingsdialog ---
 _TYPE_CONFIG = {
     "bug": {
         "label":       "🐛 Feil (bug)",
@@ -222,6 +176,8 @@ def show_feedback_dialog(username: str):
     try:
         _show_feedback_dialog_inner(username)
     except Exception as exc:
+        import logging
+        logging.exception("show_feedback_dialog feilet")
         st.error(f"Tilbakemeldingsknapp feilet: {exc}")
 
 

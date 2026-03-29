@@ -94,22 +94,93 @@ def create_project():
         db.close()
 
 
-@projects_bp.route('/projects/<int:project_id>', methods=['DELETE'])
-def delete_project(project_id: int):
-    """Delete a project (only the creator may do this)."""
-    username = request.args.get('username', '')
+@projects_bp.route('/projects/<int:project_id>', methods=['PUT'])
+def update_project(project_id: int):
+    """Update a project's name, description, or project_owner."""
+    data     = request.get_json() or {}
+    username = data.get('username', '')
+
+    if not username:
+        return jsonify({'error': 'username is required'}), 400
 
     db = get_db_session()
     try:
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
             return jsonify({'error': 'Project not found'}), 404
-        if project.created_by != username:
-            return jsonify({'error': 'Only the project creator may delete it'}), 403
+
+        # Only owner (prosjektansvarlig) or creator may edit
+        owner = project.project_owner or project.created_by
+        if username != owner and username != project.created_by:
+            return jsonify({'error': 'Bare prosjektansvarlig kan redigere prosjektet'}), 403
+
+        if 'name' in data:
+            project.name = data['name']
+        if 'description' in data:
+            project.description = data['description']
+        if 'project_owner' in data:
+            project.project_owner = data['project_owner']
+
+        db.commit()
+        return jsonify({'success': True, 'project': project.to_dict()})
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        db.close()
+
+
+@projects_bp.route('/projects/<int:project_id>', methods=['DELETE'])
+def delete_project(project_id: int):
+    """Delete a project (only the prosjektansvarlig may do this)."""
+    username    = request.args.get('username', '')
+    confirm_str = request.args.get('confirm', '')
+
+    if confirm_str != 'SLETT':
+        return jsonify({'error': 'Bekreftelse mangler. Send confirm=SLETT'}), 400
+
+    db = get_db_session()
+    try:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        owner = project.project_owner or project.created_by
+        if username != owner:
+            return jsonify({'error': 'Bare prosjektansvarlig kan slette prosjektet'}), 403
 
         db.delete(project)
         db.commit()
         return jsonify({'success': True, 'message': 'Project deleted.'})
+    finally:
+        db.close()
+
+
+@projects_bp.route('/projects/<int:project_id>/access/<username_to_remove>', methods=['DELETE'])
+def remove_access(project_id: int, username_to_remove: str):
+    """Remove a user's access to a project."""
+    requesting_user = request.args.get('username', '')
+
+    db = get_db_session()
+    try:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            return jsonify({'error': 'Project not found'}), 404
+
+        owner = project.project_owner or project.created_by
+        if requesting_user != owner and requesting_user != project.created_by:
+            return jsonify({'error': 'Bare prosjektansvarlig kan fjerne medlemmer'}), 403
+
+        access = db.query(ProjectAccess).filter(
+            ProjectAccess.project_id == project_id,
+            ProjectAccess.username == username_to_remove,
+        ).first()
+        if not access:
+            return jsonify({'error': 'Bruker har ikke tilgang'}), 404
+
+        db.delete(access)
+        db.commit()
+        return jsonify({'success': True, 'message': f'{username_to_remove} fjernet.'})
     finally:
         db.close()
 

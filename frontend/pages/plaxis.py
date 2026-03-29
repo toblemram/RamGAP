@@ -10,33 +10,10 @@ Multi-step workflow for extracting results from a running Plaxis model:
   Level 5 -- Output settings and run calculation
 """
 
-import sys
 import os
 import streamlit as st
-
-# Ensure frontend/ root is importable (needed when Streamlit runs pages/ directly)
-_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _HERE not in sys.path:
-    sys.path.insert(0, _HERE)
-
-from components.api_client import APIClient
-
-st.set_page_config(
-    page_title="RamGAP",
-    page_icon="🔧",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# Hide Streamlit's auto-generated pages navigation
-st.markdown("""
-<style>
-    [data-testid="stSidebarNav"] { display: none !important; }
-</style>
-""", unsafe_allow_html=True)
-
-
 from components.auth import require_username
+from components.api_client import APIClient
 
 USERNAME = require_username()
 api = APIClient()
@@ -489,7 +466,7 @@ def main():
         st.session_state.plaxis_level      = 1
         st.session_state.plaxis_connected  = False
         st.session_state.plaxis_model_data = None
-        st.switch_page("app.py")
+        st.switch_page("pages/home.py")
 
     # Progress indicator
     levels  = ["1. Tilkobling", "2. Funksjon", "3. Spunt/Ankere", "4. Faser", "5. Output"]

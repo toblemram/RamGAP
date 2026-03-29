@@ -45,6 +45,13 @@ class APIClient:
         except requests.RequestException as exc:
             return {'error': str(exc)}
 
+    def _put(self, path: str, payload: dict = None, timeout: int = None) -> dict:
+        try:
+            r = requests.put(f'{self.base_url}{path}', json=payload, timeout=timeout)
+            return r.json() if r.ok else {'error': r.text}
+        except requests.RequestException as exc:
+            return {'error': str(exc)}
+
     # ------------------------------------------------------------------
     # Health
     # ------------------------------------------------------------------
@@ -72,8 +79,29 @@ class APIClient:
             'created_by': created_by, 'allowed_users': allowed_users,
         })
 
-    def delete_project(self, project_id: int, username: str) -> dict:
-        return self._delete(f'/api/projects/{project_id}', {'username': username})
+    def delete_project(self, project_id: int, username: str, confirm: str) -> dict:
+        return self._delete(f'/api/projects/{project_id}',
+                            {'username': username, 'confirm': confirm})
+
+    def update_project(self, project_id: int, username: str,
+                       name: str = None, description: str = None,
+                       project_owner: str = None) -> dict:
+        payload: Dict[str, Any] = {'username': username}
+        if name is not None:
+            payload['name'] = name
+        if description is not None:
+            payload['description'] = description
+        if project_owner is not None:
+            payload['project_owner'] = project_owner
+        return self._put(f'/api/projects/{project_id}', payload)
+
+    def remove_project_access(self, project_id: int,
+                               username_to_remove: str,
+                               requesting_user: str) -> dict:
+        return self._delete(
+            f'/api/projects/{project_id}/access/{username_to_remove}',
+            {'username': requesting_user},
+        )
 
     # ------------------------------------------------------------------
     # Activity log
