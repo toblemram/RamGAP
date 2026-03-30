@@ -14,10 +14,11 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 from core.database import init_db
-from activities.plaxis.routes    import plaxis_bp
-from activities.geotolk.routes   import geotolk_bp
-from activities.projects.routes  import projects_bp
-from activities.modeling.routes  import modeling_bp
+from activities.plaxis.routes        import plaxis_bp
+from activities.geotolk.routes       import geotolk_bp
+from activities.projects.routes      import projects_bp
+from activities.modeling.routes       import modeling_bp
+from activities.plaxis_agent.routes  import plaxis_agent_bp
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -31,6 +32,7 @@ app.register_blueprint(plaxis_bp)
 app.register_blueprint(geotolk_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(modeling_bp)
+app.register_blueprint(plaxis_agent_bp)
 
 # Initialize database on startup.
 # Flask debug mode spawns two processes (supervisor + worker). Guard against
@@ -81,6 +83,14 @@ if __name__ == '__main__':
         debug=os.getenv('DEBUG', 'true').lower() == 'true',
         host=os.getenv('HOST', '0.0.0.0'),
         port=int(os.getenv('PORT', '5050')),
-        # Prevent the reloader from watching the virtual environment directory
-        exclude_patterns=[r'*\.venv\*', '*/.venv/*', r'*\__pycache__\*'],
+        # Prevent the reloader from watching system libs, venv, and pycache.
+        # plxscripting uses sockets which can trigger false reloads of socket.py
+        exclude_patterns=[
+            r'*\.venv\*', '*/.venv/*',
+            r'*\__pycache__\*', '*/__pycache__/*',
+            r'C:\Program Files\*', 'C:/Program Files/*',
+            r'*\Lib\*', '*/Lib/*',
+            r'*\lib\*', '*/lib/*',
+        ],
+        use_reloader=os.getenv('USE_RELOADER', 'false').lower() == 'true',
     )

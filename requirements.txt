@@ -19,6 +19,14 @@ azure-storage-blob>=12.19.0  # Azure Blob Storage (IFC, Excel, DWG)
 # pyodbc>=4.0.0          # Azure SQL (MSSQL) — requires system ODBC driver
 # azure-identity>=1.14.0 # Azure managed identity auth
 
+# AI / Plaxis Agent
+openai>=1.30.0           # Azure OpenAI + OpenAI API
+azure-ai-projects>=2.0.0 # Azure AI Foundry agent SDK
+azure-identity>=1.14.0   # Azure credential auth
+faiss-cpu>=1.7.0         # Vector similarity search
+numpy>=1.24.0            # Numerical operations
+pypdf>=4.0.0             # PDF text extraction
+
 # Development
 python-dotenv>=1.0.0
 pytest>=7.4.0          # Test runner

@@ -40,6 +40,7 @@ pg = st.navigation(
         ],
         "Verktøy": [
             st.Page("pages/plaxis.py", title="Plaxis", icon="🔧"),
+            st.Page("pages/plaxis_agent.py", title="Plaxis Agent", icon="🤖"),
             st.Page("pages/geotolk.py", title="GeoTolk", icon="🗺️"),
             st.Page("pages/modellering.py", title="Modellering", icon="🏗️"),
         ],

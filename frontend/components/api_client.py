@@ -256,3 +256,52 @@ class APIClient:
         return self._get(
             f'/api/modeling/activities/{activity_id}/download/{file_type}'
         )
+
+    # ------------------------------------------------------------------
+    # Plaxis Agent
+    # ------------------------------------------------------------------
+
+    def plaxis_agent_chat(self, message: str, session_id: str = 'default',
+                          history: list = None, pdf_text: str = None,
+                          auto_execute: bool = False,
+                          selected_context: list = None) -> dict:
+        return self._post('/api/plaxis-agent/chat', {
+            'message': message,
+            'session_id': session_id,
+            'history': history,
+            'pdf_text': pdf_text,
+            'auto_execute': auto_execute,
+            'selected_context': selected_context,
+        }, timeout=120)
+
+    def plaxis_agent_execute(self, code: str, session_id: str = 'default') -> dict:
+        return self._post('/api/plaxis-agent/execute', {
+            'code': code,
+            'session_id': session_id,
+        }, timeout=60)
+
+    def plaxis_agent_upload_pdf(self, file_bytes: bytes, filename: str) -> dict:
+        try:
+            r = requests.post(
+                f'{self.base_url}/api/plaxis-agent/upload-pdf',
+                files={'file': (filename, file_bytes, 'application/pdf')},
+                timeout=30,
+            )
+            return r.json() if r.ok else {'error': r.text}
+        except requests.RequestException as exc:
+            return {'error': str(exc)}
+
+    def plaxis_agent_status(self) -> dict:
+        return self._get('/api/plaxis-agent/status', timeout=10)
+
+    def plaxis_agent_connect(self, port: int, password: str,
+                              session_id: str = 'default',
+                              output_port: int = None,
+                              output_password: str = None) -> dict:
+        return self._post('/api/plaxis-agent/connect', {
+            'port': port,
+            'password': password,
+            'session_id': session_id,
+            'output_port': output_port,
+            'output_password': output_password,
+        }, timeout=15)
