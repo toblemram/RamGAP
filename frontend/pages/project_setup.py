@@ -8,17 +8,20 @@ from components.api_client import APIClient
 
 def _pick_folder(initial_dir: str = "") -> str:
     """Open a native Windows folder-picker dialog and return the chosen path."""
+    import os
     import tkinter as tk
     from tkinter import filedialog
     root = tk.Tk()
     root.withdraw()
     root.wm_attributes("-topmost", 1)
     kwargs = {}
-    if initial_dir:
+    if initial_dir and os.path.isdir(initial_dir):
         kwargs["initialdir"] = initial_dir
     folder = filedialog.askdirectory(**kwargs)
     root.destroy()
-    return folder or ""
+    if folder:
+        return os.path.normpath(folder)
+    return ""
 
 
 USERNAME = require_username()
@@ -41,10 +44,9 @@ if "new_project_folder" not in st.session_state:
 
 col_folder, col_browse = st.columns([4, 1])
 with col_folder:
-    st.session_state.new_project_folder = st.text_input(
+    folder_display = st.text_input(
         "Prosjektmappe",
-        value=st.session_state.new_project_folder,
-        key="new_project_folder_input",
+        key="new_project_folder",
         help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn",
     )
 with col_browse:
@@ -99,12 +101,14 @@ if projects:
 
             # Rediger prosjektmappe
             st.markdown("---")
+            folder_key = f"folder_{project['id']}"
+            if folder_key not in st.session_state:
+                st.session_state[folder_key] = project.get('folder_path') or ''
             fc, bc = st.columns([4, 1])
             with fc:
                 new_folder = st.text_input(
                     "Endre prosjektmappe",
-                    value=project.get('folder_path') or '',
-                    key=f"folder_{project['id']}",
+                    key=folder_key,
                 )
             with bc:
                 st.markdown("<br>", unsafe_allow_html=True)
