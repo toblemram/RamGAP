@@ -20,6 +20,8 @@ from components.project_map import (
     build_project_map,
     build_sounding_figure,
     build_3d_figure,
+    build_terrain_grid,
+    scan_project_folder,
     get_graph_data,
 )
 
@@ -209,8 +211,16 @@ def _tab_oversikt(project: dict):
                         break
 
     else:  # 3D Modell
-        with st.spinner("Bygger 3D-modell…"):
-            fig_3d = build_3d_figure(boreholes, nadag_df, project_name)
+        terrain_key = f"_terrain_{pid}"
+        folder = project.get("folder_path", "")
+
+        # Load / generate terrain (cached to disk)
+        if terrain_key not in st.session_state:
+            with st.spinner("Henter terrengdata fra Kartverket (lagres for neste gang)…"):
+                st.session_state[terrain_key] = build_terrain_grid(boreholes, folder)
+
+        terrain_grid = st.session_state[terrain_key]
+        fig_3d = build_3d_figure(boreholes, nadag_df, project_name, terrain_grid)
         st.plotly_chart(fig_3d, use_container_width=True)
 
 
@@ -220,10 +230,46 @@ def _tab_oversikt(project: dict):
 
 def _tab_data(project: dict):
     pid = project["id"]
+    folder = project.get("folder_path", "")
     snd_data = st.session_state.get(f"_snd_project_{pid}")
 
+    # --- Project folder overview ---
+    st.markdown("### 📂 Prosjektmappe")
+    if not folder:
+        st.info("Ingen prosjektmappe er satt.")
+    else:
+        scan = scan_project_folder(folder)
+        if not scan.get("exists"):
+            st.warning(f"Mappen finnes ikke: `{folder}`")
+        else:
+            import pandas as pd
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                st.metric("Totalt filer", scan.get("total_files", 0))
+            with col_f2:
+                st.metric("Undermapper", len(scan.get("subfolders", [])))
+
+            # Subfolders
+            subfolders = scan.get("subfolders", [])
+            if subfolders:
+                st.markdown("**Undermapper:**")
+                for sf in subfolders:
+                    st.caption(f"📁 {sf['name']}  ({sf['count']} elementer)")
+
+            # File types
+            file_groups = scan.get("file_groups", {})
+            if file_groups:
+                st.markdown("**Filtyper:**")
+                rows = []
+                for ext, files in sorted(file_groups.items()):
+                    rows.append({"Type": ext, "Antall": len(files), "Eksempler": ", ".join(files[:3]) + ("…" if len(files) > 3 else "")})
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # --- Borehole data ---
     if not snd_data or not snd_data.get("boreholes"):
-        st.info("Ingen borehulldata tilgjengelig. Sjekk at prosjektmappen inneholder SND-filer.")
+        st.info("Ingen SND-borehulldata funnet i prosjektmappen.")
         return
 
     boreholes = snd_data["boreholes"]

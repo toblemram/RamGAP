@@ -537,10 +537,43 @@ def _fetch_kartverket_elevation(lat: float, lon: float) -> float | None:
     return None
 
 
-def _build_terrain_grid(
-    boreholes: list[dict], resolution: int = 10,
+def _terrain_cache_path(folder_path: str) -> Path:
+    """Return the path to the cached terrain grid JSON file."""
+    return Path(folder_path) / ".ramgap_terrain_cache.json"
+
+
+def _load_terrain_cache(folder_path: str) -> list[dict] | None:
+    """Load terrain grid from disk cache if it exists."""
+    p = _terrain_cache_path(folder_path)
+    if p.is_file():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                return data
+        except Exception:
+            pass
+    return None
+
+
+def _save_terrain_cache(folder_path: str, terrain: list[dict]) -> None:
+    """Save terrain grid to disk cache."""
+    try:
+        p = _terrain_cache_path(folder_path)
+        p.write_text(json.dumps(terrain), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def build_terrain_grid(
+    boreholes: list[dict], folder_path: str = "", resolution: int = 10,
 ) -> list[dict]:
-    """Build a grid of elevation points for the borehole area."""
+    """Build a grid of elevation points. Uses disk cache if available."""
+    # Try disk cache first
+    if folder_path:
+        cached = _load_terrain_cache(folder_path)
+        if cached:
+            return cached
+
     lats = [bh["lat"] for bh in boreholes]
     lons = [bh["lon"] for bh in boreholes]
     buf = 0.001
@@ -558,7 +591,38 @@ def _build_terrain_grid(
     for lat, lon in grid_points:
         z = _fetch_kartverket_elevation(lat, lon)
         terrain.append({"lat": lat, "lon": lon, "z": z if z is not None else 0.0})
+
+    # Save to disk cache
+    if folder_path:
+        _save_terrain_cache(folder_path, terrain)
+
     return terrain
+
+
+# ---------------------------------------------------------------------------
+# Project folder scanner
+# ---------------------------------------------------------------------------
+
+def scan_project_folder(folder_path: str) -> dict:
+    """Scan a project folder and return a summary of its contents."""
+    folder = Path(folder_path)
+    if not folder.is_dir():
+        return {"exists": False}
+
+    result: dict[str, Any] = {"exists": True, "path": str(folder), "subfolders": [], "file_groups": {}}
+    extensions: dict[str, list[str]] = {}
+
+    for item in sorted(folder.iterdir()):
+        if item.is_dir():
+            child_count = sum(1 for _ in item.iterdir()) if item.is_dir() else 0
+            result["subfolders"].append({"name": item.name, "count": child_count})
+        elif item.is_file():
+            ext = item.suffix.upper() or "(ingen)"
+            extensions.setdefault(ext, []).append(item.name)
+
+    result["file_groups"] = extensions
+    result["total_files"] = sum(len(v) for v in extensions.values())
+    return result
 
 
 def build_3d_figure(
