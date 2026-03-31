@@ -38,11 +38,6 @@ pg = st.navigation(
         "": [
             st.Page("pages/home.py", title="Prosjekter", icon="🏠", default=True),
         ],
-        "Verktøy": [
-            st.Page("pages/plaxis.py", title="Plaxis", icon="🔧"),
-            st.Page("pages/geotolk.py", title="GeoTolk", icon="🗺️"),
-            st.Page("pages/modellering.py", title="Modellering", icon="🏗️"),
-        ],
         "Ressurser": [
             st.Page("pages/geogpt.py", title="GeoGPT", icon="🤖"),
             st.Page("pages/plaxis_agent.py", title="Plaxis Agent", icon="🤖"),
