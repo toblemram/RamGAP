@@ -57,15 +57,171 @@ CRS_OPTIONS = {
     "EUREF89 UTM33 (EPSG:25833)": 25833,
 }
 
-# Method style for map markers
+# Method style for map markers (project boreholes)
 METHOD_MARKER_COLORS = {
-    "Totalsondering": "#E63946",
+    "Totalsondering": "#F44336",
     "Fjellkontrollboring": "#795548",
-    "Dreietrykksondering": "#2E7D32",
-    "Dreiesondering": "#1565C0",
+    "Dreietrykksondering": "#2196F3",
+    "Dreiesondering": "#E91E63",
+    "Trykksondering": "#4CAF50",
     "Enkel sondering": "#6A1B9A",
-    "CPT": "#E65100",
+    "CPT": "#CDDC39",
+    "CPTU": "#8BC34A",
+    "Vingeboring": "#FF9800",
+    "Prøvetaking": "#9C27B0",
+    "Poretrykksmåling": "#607D8B",
+    "Bergkontrollboring": "#455A64",
+    "Kjerneboring": "#455A64",
 }
+
+# NADAG method symbol -> colour (geotekniskmetodesymbol int)
+_NADAG_SYMBOL_COLORS = {
+    10: "#2196F3",   # Dreietrykksondering
+    20: "#4CAF50",   # Trykksondering
+    21: "#66BB6A",   # Trykksondering ENVI
+    22: "#388E3C",   # Trykksondering/dreietrykksondering
+    25: "#8BC34A",   # CPTU
+    26: "#CDDC39",   # CPT
+    30: "#FF9800",   # Vingeboring
+    40: "#9C27B0",   # Prøvetaking
+    50: "#F44336",   # Totalsondering
+    60: "#E91E63",   # Dreiesondering
+    70: "#795548",   # Fjellkontrollboring
+    80: "#607D8B",   # Poretrykksmåling
+    100: "#455A64",  # Bergkontrollboring/Kjerneboring
+}
+_NADAG_DEFAULT_COLOR = "#5B8FF9"
+
+# ---------------------------------------------------------------------------
+# NVE Kvikkleire (quick clay) zones
+# ---------------------------------------------------------------------------
+_KVIKK_STYLE: dict[str, dict] = {
+    "lav":        {"label": "Lav",        "fill": "#FFF176", "border": "#F9A825"},
+    "middels":    {"label": "Middels",    "fill": "#FFB300", "border": "#E65100"},
+    "høy":        {"label": "Høy",        "fill": "#EF5350", "border": "#B71C1C"},
+    "hoy":        {"label": "Høy",        "fill": "#EF5350", "border": "#B71C1C"},
+    "meget høy":  {"label": "Meget høy",  "fill": "#B71C1C", "border": "#7f0000"},
+    "meget hoy":  {"label": "Meget høy",  "fill": "#B71C1C", "border": "#7f0000"},
+    "farlig":     {"label": "Farlig",     "fill": "#880E4F", "border": "#4a0026"},
+}
+_KVIKK_DEFAULT = {"label": "Ukjent", "fill": "#FF8F00", "border": "#E65100"}
+
+_NVE_KVIKK_URL = (
+    "https://gis3.nve.no/arcgis/rest/services/mapservice"
+    "/SkredKvikkleireApp_Faktaark/MapServer/1/query"
+)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_nve_quickclay(bbox_wgs84: tuple[float, float, float, float]) -> list[dict]:
+    """Fetch NVE kvikkleiresoner for the given bbox (min_lon, min_lat, max_lon, max_lat)."""
+    min_lon, min_lat, max_lon, max_lat = bbox_wgs84
+    buf = 0.05
+    params = {
+        "f": "geojson",
+        "geometry": f"{min_lon - buf},{min_lat - buf},{max_lon + buf},{max_lat + buf}",
+        "geometryType": "esriGeometryEnvelope",
+        "inSR": "4326",
+        "spatialRel": "esriSpatialRelIntersects",
+        "outFields": "faregrad,skredOmrNavn,kommune,areal_km2,rapportURL",
+        "outSR": "4326",
+        "returnGeometry": "true",
+        "resultRecordCount": "500",
+    }
+    url = _NVE_KVIKK_URL + "?" + urlencode(params)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "RamGAP/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read())
+        return data.get("features", [])
+    except Exception:
+        return []
+
+
+def _add_quickclay_to_map(m: folium.Map, boreholes: list[dict]) -> None:
+    """Add NVE kvikkleire polygons near the project boreholes."""
+    if not boreholes:
+        return
+    lats = [bh["lat"] for bh in boreholes]
+    lons = [bh["lon"] for bh in boreholes]
+    bbox = (min(lons), min(lats), max(lons), max(lats))
+    features = _fetch_nve_quickclay(bbox)
+    if not features:
+        return
+    for feat in features:
+        props = feat.get("properties") or {}
+        geom = feat.get("geometry") or {}
+        geom_type = geom.get("type", "")
+        coords = geom.get("coordinates")
+        if not coords:
+            continue
+        raw = str(props.get("faregrad") or "").strip().lower()
+        style = _KVIKK_STYLE.get(raw, _KVIKK_DEFAULT)
+        sonenavn = props.get("skredOmrNavn") or "–"
+        kommunenavn = props.get("kommune") or "–"
+        areal_km2 = props.get("areal_km2")
+        areal_txt = f"{float(areal_km2) * 100:.1f} daa" if areal_km2 else "–"
+        rapport_url = props.get("rapportURL") or ""
+        tooltip_html = (
+            f"<b>&#128997; Kvikkleiresone</b><br/>"
+            f"<b>Navn:</b> {sonenavn}<br/>"
+            f"<b>Faregrad:</b> <b>{style['label']}</b><br/>"
+            f"<b>Kommune:</b> {kommunenavn}"
+        )
+        popup_html = (
+            f'<div style="font-size:13px;min-width:220px;">'
+            f'<b style="color:{style["border"]};">&#128997; Kvikkleiresone</b><br/>'
+            f'<b>Navn:</b> {sonenavn}<br/>'
+            f'<b>Faregrad:</b> <span style="color:{style["border"]};font-weight:700;">'
+            f'{style["label"]}</span><br/>'
+            f'<b>Kommune:</b> {kommunenavn}<br/>'
+            f'<b>Areal:</b> {areal_txt}'
+        )
+        if rapport_url:
+            popup_html += f'<br/><a href="https://{rapport_url}" target="_blank">&#128196; Rapport</a>'
+        popup_html += '</div>'
+
+        def _ring_locs(ring: list) -> list[list[float]]:
+            return [[pt[1], pt[0]] for pt in ring]
+
+        try:
+            rings: list[list] = []
+            if geom_type == "Polygon":
+                rings = [_ring_locs(coords[0])]
+            elif geom_type == "MultiPolygon":
+                rings = [_ring_locs(poly[0]) for poly in coords]
+            else:
+                continue
+            for ring_locs in rings:
+                folium.Polygon(
+                    locations=ring_locs,
+                    color=style["border"],
+                    weight=1.5,
+                    fill=True,
+                    fill_color=style["fill"],
+                    fill_opacity=0.45,
+                    tooltip=folium.Tooltip(tooltip_html, sticky=True),
+                    popup=folium.Popup(popup_html, max_width=280),
+                ).add_to(m)
+        except Exception:
+            continue
+
+
+def _nadag_marker_color(row: pd.Series) -> str:
+    """Determine marker color for a NADAG borehole based on method symbol."""
+    sym = row.get("geotekniskmetodesymbol")
+    if sym is not None:
+        try:
+            return _NADAG_SYMBOL_COLORS.get(int(sym), _NADAG_DEFAULT_COLOR)
+        except (ValueError, TypeError):
+            pass
+    # Fallback: match by method text
+    txt = str(row.get("geotekniskmetodetekst", "")).strip()
+    for key, color in METHOD_MARKER_COLORS.items():
+        if key.lower() in txt.lower():
+            return color
+    return _NADAG_DEFAULT_COLOR
+
 
 # Module-level cache for graph data (not serialized by Streamlit)
 _GRAPH_DATA_CACHE: dict[tuple[str, str], dict] = {}
@@ -343,7 +499,11 @@ def build_project_map(
     polygon: list[tuple[float, float]] | None = None,
     project_name: str = "",
 ) -> folium.Map:
-    """Build a 2D folium map centred on the project boreholes."""
+    """Build a 2D folium map centred on the project boreholes.
+
+    Base layer is Norgeskart (always on). NADAG markers use method-based
+    colours.  NVE kvikkleire zones are always shown.
+    """
     if not boreholes:
         return folium.Map(location=[59.9, 10.75], zoom_start=10)
 
@@ -353,30 +513,19 @@ def build_project_map(
 
     m = folium.Map(location=center, zoom_start=14, control_scale=True, tiles=None)
 
-    # Base maps
-    folium.TileLayer("OpenStreetMap", name="OpenStreetMap", control=True).add_to(m)
-    folium.TileLayer("CartoDB Positron", name="CartoDB Positron", control=True, show=False).add_to(m)
-    folium.TileLayer(
-        tiles="https://opencache.statkart.no/gatekeeper/gk/gk.open_nib_web_mercator_wmts_v2"
-              "?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=Nibcache_web_mercator_v2"
-              "&STYLE=default&FORMAT=image/jpgpng&TILEMATRIXSET=default028mm"
-              "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
-        attr="Kartverket",
-        name="Norge i bilder",
-        overlay=False,
-        control=True,
-        show=False,
-    ).add_to(m)
+    # Norgeskart base (always on)
     folium.TileLayer(
         tiles="https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
         attr="Kartverket",
         name="Norgeskart",
         overlay=False,
-        control=True,
-        show=False,
+        control=False,
     ).add_to(m)
 
-    # Project polygon
+    # --- NVE Kvikkleire (quick clay) zones ---
+    _add_quickclay_to_map(m, boreholes)
+
+    # --- Project polygon ---
     if polygon and len(polygon) >= 3:
         folium.Polygon(
             locations=polygon,
@@ -388,8 +537,7 @@ def build_project_map(
             tooltip=f"Prosjekt: {project_name}",
         ).add_to(m)
 
-    # Project boreholes
-    fg_proj = folium.FeatureGroup(name=f"Borehull – {project_name}", show=True)
+    # --- Project boreholes ---
     for bh in boreholes:
         color = METHOD_MARKER_COLORS.get(bh.get("method_name", ""), "#E63946")
         popup_html = (
@@ -410,12 +558,10 @@ def build_project_map(
             fill_opacity=0.85,
             popup=folium.Popup(popup_html, max_width=280),
             tooltip=f"{bh['point_id']} – {bh.get('method_name', '')}",
-        ).add_to(fg_proj)
-    fg_proj.add_to(m)
+        ).add_to(m)
 
-    # NADAG boreholes
+    # --- NADAG boreholes (method-coloured) ---
     if nadag_df is not None and not nadag_df.empty:
-        fg_nadag = folium.FeatureGroup(name="NADAG (NGU)", show=True)
         for _, row in nadag_df.iterrows():
             lat = row.get("_lat")
             lon = row.get("_lon")
@@ -423,24 +569,25 @@ def build_project_map(
                 continue
             borenr = str(row.get("borenr", "NADAG"))
             depth = row.get("boretlengde", "?")
+            method_txt = row.get("geotekniskmetodetekst", "–")
+            color = _nadag_marker_color(row)
             popup_html = (
                 f'<div style="font-size:13px;min-width:180px;">'
                 f'<b>{borenr}</b> (NADAG)<br>'
                 f'<b>Dybde:</b> {depth} m<br>'
-                f'<b>Metode:</b> {row.get("geotekniskmetodetekst", "–")}'
+                f'<b>Metode:</b> {method_txt}'
                 f'</div>'
             )
             folium.CircleMarker(
                 location=[float(lat), float(lon)],
                 radius=6,
-                color="#5B8FF9",
+                color=color,
                 fill=True,
-                fill_color="#5B8FF9",
-                fill_opacity=0.7,
+                fill_color=color,
+                fill_opacity=0.8,
                 popup=folium.Popup(popup_html, max_width=260),
-                tooltip=f"NADAG: {borenr}",
-            ).add_to(fg_nadag)
-        fg_nadag.add_to(m)
+                tooltip=f"NADAG: {borenr} – {method_txt}",
+            ).add_to(m)
 
     # Fit to bounds
     all_coords = [[bh["lat"], bh["lon"]] for bh in boreholes]
@@ -451,7 +598,6 @@ def build_project_map(
     if all_coords:
         m.fit_bounds(all_coords, padding=[30, 30])
 
-    folium.LayerControl(collapsed=False).add_to(m)
     MiniMap(toggle_display=True).add_to(m)
     Fullscreen(position="topright").add_to(m)
     MousePosition(position="bottomright", prefix="Koordinat").add_to(m)
@@ -564,10 +710,53 @@ def _save_terrain_cache(folder_path: str, terrain: list[dict]) -> None:
         pass
 
 
+def _fetch_ortophoto_colors(
+    terrain: list[dict], min_lat: float, min_lon: float,
+    max_lat: float, max_lon: float, width: int = 512, height: int = 512,
+) -> list[str] | None:
+    """Fetch ortophoto from Kartverket WMS and sample RGB at each vertex."""
+    try:
+        from PIL import Image
+        from io import BytesIO as _BytesIO
+    except ImportError:
+        return None
+    params = {
+        "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap",
+        "LAYERS": "ortofoto", "CRS": "EPSG:4326",
+        "BBOX": f"{min_lat},{min_lon},{max_lat},{max_lon}",
+        "WIDTH": str(width), "HEIGHT": str(height),
+        "FORMAT": "image/png", "STYLES": "",
+    }
+    url = "https://wms.geonorge.no/skwms1/wms.nib?" + urlencode(params)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "RamGAP/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            img_data = r.read()
+        img = Image.open(_BytesIO(img_data)).convert("RGB")
+    except Exception:
+        return None
+    w, h = img.size
+    lat_span = max_lat - min_lat or 1e-9
+    lon_span = max_lon - min_lon or 1e-9
+    colors = []
+    for pt in terrain:
+        px = int((pt["lon"] - min_lon) / lon_span * (w - 1))
+        py = int((1 - (pt["lat"] - min_lat) / lat_span) * (h - 1))
+        px = max(0, min(w - 1, px))
+        py = max(0, min(h - 1, py))
+        rc, gc, bc = img.getpixel((px, py))
+        colors.append(f"rgb({rc},{gc},{bc})")
+    return colors
+
+
 def build_terrain_grid(
     boreholes: list[dict], folder_path: str = "", resolution: int = 10,
 ) -> list[dict]:
-    """Build a grid of elevation points. Uses disk cache if available."""
+    """Build a grid of elevation points with ortophoto colours.
+
+    Uses disk cache if available.  Each dict has keys:
+      lat, lon, z, color (optional rgb string).
+    """
     # Try disk cache first
     if folder_path:
         cached = _load_terrain_cache(folder_path)
@@ -591,6 +780,14 @@ def build_terrain_grid(
     for lat, lon in grid_points:
         z = _fetch_kartverket_elevation(lat, lon)
         terrain.append({"lat": lat, "lon": lon, "z": z if z is not None else 0.0})
+
+    # Fetch ortophoto colours for each vertex
+    ortho_colors = _fetch_ortophoto_colors(
+        terrain, min_lat, min_lon, max_lat, max_lon,
+    )
+    if ortho_colors:
+        for pt, col in zip(terrain, ortho_colors):
+            pt["color"] = col
 
     # Save to disk cache
     if folder_path:
@@ -653,7 +850,7 @@ def build_3d_figure(
         max(all_lons) - min(all_lons),
         max(all_lats) - min(all_lats),
     ) * 111_000
-    res_scale_m = max(extent_m * 0.15, 15.0)
+    res_scale_m = max(extent_m * 0.07, 6.0)
     az_rad = math.radians(135.0)
     dx_dir = math.sin(az_rad)
     dy_dir = math.cos(az_rad)
@@ -663,24 +860,37 @@ def build_3d_figure(
         "#E65100", "#00838F", "#B45309", "#7C3AED",
     ]
 
-    # Terrain mesh
+    # Terrain mesh (with ortofoto if available)
     if terrain_grid:
         tx, ty, tz_list = [], [], []
+        vertex_colors = []
+        has_ortho = False
         for pt in terrain_grid:
             lx, ly = to_local(pt["lat"], pt["lon"])
             tx.append(lx); ty.append(ly); tz_list.append(pt["z"])
+            if "color" in pt:
+                vertex_colors.append(pt["color"])
+                has_ortho = True
+            else:
+                vertex_colors.append(None)
         pts2d = np.array(list(zip(tx, ty)))
         tri = Delaunay(pts2d)
-        fig.add_trace(go.Mesh3d(
+        mesh_kwargs: dict = dict(
             x=tx, y=ty, z=tz_list,
             i=tri.simplices[:, 0].tolist(),
             j=tri.simplices[:, 1].tolist(),
             k=tri.simplices[:, 2].tolist(),
-            intensity=tz_list,
-            colorscale=[[0, "rgb(90,120,60)"], [0.5, "rgb(140,170,90)"], [1, "rgb(200,190,140)"]],
-            showscale=False, opacity=0.72, name="Terreng",
+            showscale=False, opacity=0.85, name="Terreng",
             hovertemplate="Kote: %{z:.1f} m<extra>Terreng</extra>",
-        ))
+        )
+        if has_ortho and all(c is not None for c in vertex_colors):
+            mesh_kwargs["vertexcolor"] = vertex_colors
+        else:
+            mesh_kwargs["intensity"] = tz_list
+            mesh_kwargs["colorscale"] = [
+                [0, "rgb(90,120,60)"], [0.5, "rgb(140,170,90)"], [1, "rgb(200,190,140)"]
+            ]
+        fig.add_trace(go.Mesh3d(**mesh_kwargs))
 
     # Global max resistance for scaling
     global_max_c2 = 1.0
