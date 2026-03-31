@@ -40,12 +40,12 @@ pg = st.navigation(
         ],
         "Verktøy": [
             st.Page("pages/plaxis.py", title="Plaxis", icon="🔧"),
-            st.Page("pages/plaxis_agent.py", title="Plaxis Agent", icon="🤖"),
             st.Page("pages/geotolk.py", title="GeoTolk", icon="🗺️"),
             st.Page("pages/modellering.py", title="Modellering", icon="🏗️"),
         ],
         "Ressurser": [
             st.Page("pages/geogpt.py", title="GeoGPT", icon="🤖"),
+            st.Page("pages/plaxis_agent.py", title="Plaxis Agent", icon="🤖"),
             st.Page("pages/standarder.py", title="Standarder", icon="📚"),
             st.Page("pages/excel_ark.py", title="Excel-ark", icon="📊"),
             st.Page("pages/opplaering.py", title="Opplæring", icon="🎓"),
