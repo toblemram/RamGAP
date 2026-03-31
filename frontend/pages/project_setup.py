@@ -42,6 +42,10 @@ st.markdown("### Opprett nytt prosjekt")
 if "new_project_folder" not in st.session_state:
     st.session_state.new_project_folder = ""
 
+# Handle pending browse result before widget renders
+if st.session_state.get("_browse_new_pending"):
+    st.session_state.new_project_folder = st.session_state.pop("_browse_new_pending")
+
 col_folder, col_browse = st.columns([4, 1])
 with col_folder:
     folder_display = st.text_input(
@@ -54,7 +58,7 @@ with col_browse:
     if st.button("📂 Bla gjennom…", key="browse_new_folder", use_container_width=True):
         chosen = _pick_folder(st.session_state.new_project_folder)
         if chosen:
-            st.session_state.new_project_folder = chosen
+            st.session_state["_browse_new_pending"] = chosen
             st.rerun()
 
 with st.form("create_project_form"):
@@ -102,8 +106,11 @@ if projects:
             # Rediger prosjektmappe
             st.markdown("---")
             folder_key = f"folder_{project['id']}"
+            pending_key = f"_browse_edit_pending_{project['id']}"
             if folder_key not in st.session_state:
                 st.session_state[folder_key] = project.get('folder_path') or ''
+            if st.session_state.get(pending_key):
+                st.session_state[folder_key] = st.session_state.pop(pending_key)
             fc, bc = st.columns([4, 1])
             with fc:
                 new_folder = st.text_input(
@@ -113,9 +120,9 @@ if projects:
             with bc:
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("📂", key=f"browse_folder_{project['id']}", use_container_width=True):
-                    chosen = _pick_folder(project.get('folder_path') or '')
+                    chosen = _pick_folder(st.session_state.get(folder_key, ''))
                     if chosen:
-                        st.session_state[f"folder_{project['id']}"] = chosen
+                        st.session_state[pending_key] = chosen
                         st.rerun()
             if st.button("💾 Lagre mappe", key=f"save_folder_{project['id']}"):
                 res = api.update_project(project['id'], USERNAME, folder_path=new_folder)
