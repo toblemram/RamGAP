@@ -855,7 +855,7 @@ def filter_points_in_polygon(df: pd.DataFrame, polygon_coords: list[list[float]]
 # ---------------------------------------------------------------------------
 def call_azure_ai_summary(prompt_text: str) -> str:
     """Call Azure OpenAI (AI Foundry) chat completions endpoint via SDK."""
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "https://aoai-acc-bot-dev.openai.azure.com/")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     api_key = os.getenv("AZURE_OPENAI_API_KEY", "")
     deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
     api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
