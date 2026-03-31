@@ -10,8 +10,12 @@ gunicorn>=21.2.0       # Production WSGI server (Azure App Service)
 # Frontend
 streamlit>=1.36.0
 streamlit-plotly-events>=0.0.6
+streamlit-folium>=0.27.0
 requests>=2.31.0
 plotly>=5.18.0
+folium>=0.20.0
+pyproj>=3.6.0
+scipy>=1.12.0
 
 # Database drivers
 psycopg2-binary>=2.9.0  # Azure PostgreSQL / any PostgreSQL

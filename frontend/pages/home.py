@@ -2,13 +2,26 @@
 """
 Home Page — Prosjektoversikt
 ==============================
-Project list and project detail view.
+Project list and project detail view with 4 tabs:
+  Oversikt  – Map (2D/3D) with boreholes from SND files + NADAG
+  Data      – Borehole data tables and sounding diagrams
+  Aktiviteter – Project activities and launch tools
+  Logg      – Activity log
 """
 
 import threading
 import streamlit as st
+from streamlit_folium import st_folium
 from components.auth import require_username
 from components.api_client import APIClient
+from components.project_map import (
+    load_snd_project,
+    query_nadag_for_project,
+    build_project_map,
+    build_sounding_figure,
+    build_3d_figure,
+    get_graph_data,
+)
 
 USERNAME = require_username()
 api = APIClient()
@@ -96,28 +109,176 @@ _TYPE_ICONS = {
 
 
 # ---------------------------------------------------------------------------
-# Project detail view
+# Auto-load project geo data (SND files + NADAG)
 # ---------------------------------------------------------------------------
 
-def show_project_view():
-    """Show project detail view."""
-    project = st.session_state.selected_project
-    if not project:
-        st.rerun()
+def _ensure_project_geo_loaded(project: dict) -> None:
+    """Load SND boreholes from project folder and query NADAG on first open."""
+    pid = project["id"]
+    cache_key = f"_geo_loaded_{pid}"
+
+    if st.session_state.get(cache_key):
+        return  # Already loaded
+
+    folder = project.get("folder_path")
+    if not folder:
+        st.session_state[cache_key] = True
         return
 
-    if st.button("← Tilbake til oversikt"):
-        st.session_state.selected_project = None
-        st.rerun()
+    # Load SND project from folder
+    snd_key = f"_snd_project_{pid}"
+    nadag_key = f"_nadag_df_{pid}"
 
-    st.subheader(f"📁 {project['name']}")
-    st.caption(project.get('description') or 'Ingen beskrivelse')
-    st.markdown("---")
+    if snd_key not in st.session_state:
+        with st.spinner("Laster borehull fra prosjektmappe…"):
+            snd_data = load_snd_project(folder)
+            st.session_state[snd_key] = snd_data
 
+            # Query NADAG for the project area
+            if snd_data and snd_data.get("boreholes"):
+                nadag_df = query_nadag_for_project(snd_data["boreholes"])
+                st.session_state[nadag_key] = nadag_df
+            else:
+                st.session_state[nadag_key] = None
+
+    st.session_state[cache_key] = True
+
+
+# ---------------------------------------------------------------------------
+# Tab: Oversikt (Map 2D/3D)
+# ---------------------------------------------------------------------------
+
+def _tab_oversikt(project: dict):
+    pid = project["id"]
+    snd_data = st.session_state.get(f"_snd_project_{pid}")
+    nadag_df = st.session_state.get(f"_nadag_df_{pid}")
+
+    if not snd_data or not snd_data.get("boreholes"):
+        folder = project.get("folder_path")
+        if not folder:
+            st.info("Ingen prosjektmappe er satt. Gå til **Prosjektinnstillinger** for å legge til en mappe med SND-filer.")
+        else:
+            st.warning(f"Fant ingen SND-filer i prosjektmappen: `{folder}`")
+            if snd_data and snd_data.get("errors"):
+                with st.expander("⚠️ Feil ved lasting"):
+                    for err in snd_data["errors"]:
+                        st.caption(f"• {err}")
+        return
+
+    boreholes = snd_data["boreholes"]
+    polygon = snd_data.get("polygon")
+    project_name = snd_data.get("project_name", project["name"])
+    errors = snd_data.get("errors", [])
+
+    # Summary
+    col_s1, col_s2, col_s3 = st.columns(3)
+    col_s1.metric("Borehull", len(boreholes))
+    nadag_count = len(nadag_df) if nadag_df is not None and not nadag_df.empty else 0
+    col_s2.metric("NADAG (NGU)", nadag_count)
+    col_s3.metric("CRS", f"EPSG:{snd_data.get('epsg', '?')}")
+
+    if errors:
+        with st.expander(f"⚠️ {len(errors)} feil ved lasting", expanded=False):
+            for err in errors:
+                st.caption(f"• {err}")
+
+    # 2D / 3D toggle
+    view_mode = st.radio("Visning", ["2D Kart", "3D Modell"], horizontal=True, key=f"view_mode_{pid}")
+
+    if view_mode == "2D Kart":
+        m = build_project_map(boreholes, nadag_df, polygon, project_name)
+        map_data = st_folium(m, height=550, use_container_width=True, key=f"map_{pid}")
+
+        # Handle click on borehole marker
+        clicked_popup = None
+        if map_data and map_data.get("last_object_clicked_popup"):
+            clicked_popup = map_data["last_object_clicked_popup"]
+
+        if clicked_popup and "<b" in str(clicked_popup):
+            # Extract point_id from popup HTML
+            import re
+            match = re.search(r'<b[^>]*>([^<]+)</b>', str(clicked_popup))
+            if match:
+                clicked_id = match.group(1).strip()
+                # Find matching borehole
+                for bh in boreholes:
+                    if bh["point_id"] == clicked_id:
+                        st.markdown(f"### 📊 {clicked_id}")
+                        fig = build_sounding_figure(bh, project_name)
+                        st.plotly_chart(fig, use_container_width=True)
+                        break
+
+    else:  # 3D Modell
+        with st.spinner("Bygger 3D-modell…"):
+            fig_3d = build_3d_figure(boreholes, nadag_df, project_name)
+        st.plotly_chart(fig_3d, use_container_width=True)
+
+
+# ---------------------------------------------------------------------------
+# Tab: Data (borehole table + sounding diagrams)
+# ---------------------------------------------------------------------------
+
+def _tab_data(project: dict):
+    pid = project["id"]
+    snd_data = st.session_state.get(f"_snd_project_{pid}")
+
+    if not snd_data or not snd_data.get("boreholes"):
+        st.info("Ingen borehulldata tilgjengelig. Sjekk at prosjektmappen inneholder SND-filer.")
+        return
+
+    boreholes = snd_data["boreholes"]
+    project_name = snd_data.get("project_name", project["name"])
+
+    st.markdown("### 📋 Borehull")
+
+    import pandas as pd
+    df = pd.DataFrame([
+        {
+            "Punkt-ID": bh["point_id"],
+            "Metode": bh.get("method_name", "Ukjent"),
+            "Dybde (m)": round(bh["max_depth"], 1),
+            "Terrengkvote (m)": round(bh["elevation"], 1),
+            "Dato": bh.get("date", "–"),
+        }
+        for bh in boreholes
+    ])
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # Sounding diagrams
+    st.markdown("### 📊 Sonderingsdiagram")
+    selected_ids = st.multiselect(
+        "Velg borehull",
+        [bh["point_id"] for bh in boreholes],
+        default=[boreholes[0]["point_id"]] if boreholes else [],
+        key=f"sel_bh_{pid}",
+    )
+
+    cols = st.columns(min(len(selected_ids), 3)) if selected_ids else []
+    for i, pid_sel in enumerate(selected_ids):
+        bh = next((b for b in boreholes if b["point_id"] == pid_sel), None)
+        if bh:
+            with cols[i % len(cols)]:
+                fig = build_sounding_figure(bh, project_name)
+                st.plotly_chart(fig, use_container_width=True)
+
+    # NADAG data
+    nadag_df = st.session_state.get(f"_nadag_df_{pid}")
+    if nadag_df is not None and not nadag_df.empty:
+        st.markdown("### 🌍 NADAG-data (NGU)")
+        display_cols = [c for c in ["borenr", "geotekniskmetodetekst", "boretlengde", "hoeyde", "_lat", "_lon"]
+                        if c in nadag_df.columns]
+        st.dataframe(nadag_df[display_cols] if display_cols else nadag_df, use_container_width=True, hide_index=True)
+
+
+# ---------------------------------------------------------------------------
+# Tab: Aktiviteter (launch tools + calculations)
+# ---------------------------------------------------------------------------
+
+def _tab_aktiviteter(project: dict):
     col1, col2 = st.columns([2, 1])
 
     with col1:
-        st.markdown("### 📋 Aktiviteter")
+        st.markdown("### 📋 Beregninger")
         calculations = _cached_calculations(project['id'], 10)
 
         if calculations:
@@ -148,66 +309,25 @@ def show_project_view():
                         if anchors:
                             st.write(f"• Ankere: {', '.join(anchors)}")
 
-                    phases = calc.get('phases', {})
-                    if phases.get('capacity') or phases.get('msf') or phases.get('displacement'):
-                        st.markdown("**Analyser:**")
-                        if phases.get('capacity'):
-                            st.write(f"• Kapasitet: {', '.join(phases['capacity'])}")
-                        if phases.get('msf'):
-                            st.write(f"• MSF: {', '.join(phases['msf'])}")
-                        if phases.get('displacement'):
-                            st.write(f"• Deformasjon: {', '.join(phases['displacement'])}")
-
                     if status == 'completed':
                         results = calc.get('results', {})
                         if results and results.get('msf'):
                             st.markdown("**Resultater:**")
                             for phase, value in results['msf'].items():
                                 st.write(f"• MSF {phase}: {value:.2f}" if value else f"• MSF {phase}: -")
-                        output_file = calc.get('output_file')
-                        if output_file:
-                            st.success(f"📁 {output_file}")
                     elif status == 'failed':
                         st.error(f"Feil: {calc.get('error_message', 'Ukjent feil')}")
-
-                    st.markdown("---")
-                    col_pwd, col_btn = st.columns([2, 1])
-                    with col_pwd:
-                        rerun_pwd = st.text_input(
-                            "Plaxis passord", type="password",
-                            key=f"rerun_pwd_{calc['id']}",
-                            help="Oppgi passord for å kjøre på nytt",
-                        )
-                    with col_btn:
-                        if st.button("🔄 Kjør på nytt", key=f"rerun_btn_{calc['id']}", use_container_width=True):
-                            if rerun_pwd:
-                                with st.spinner("Kjører beregning på nytt..."):
-                                    result = api.rerun_plaxis_calculation(calc['id'], rerun_pwd, session_id=USERNAME)
-                                    if result.get('success'):
-                                        st.success("✅ Beregning fullført!")
-                                        _cached_calculations.clear()
-                                        st.rerun()
-                                    else:
-                                        st.error(f"Feil: {result.get('error', 'Ukjent feil')}")
-                            else:
-                                st.warning("Oppgi passord først")
         else:
-            st.info("Ingen aktiviteter ennå. Start en ny aktivitet til høyre!")
+            st.info("Ingen beregninger ennå. Start en ny aktivitet til høyre!")
 
     with col2:
         st.markdown("### 🚀 Start ny aktivitet")
-        st.markdown("Velg type aktivitet:")
 
         if st.button("🔧 Plaxis automatisering", use_container_width=True, key="btn_plaxis"):
-            st.session_state.plaxis_level = 1
-            st.session_state.plaxis_connected = False
-            st.session_state.plaxis_model_data = None
             _log_project(project['id'], 'Plaxis', 'Plaxis automatisering startet')
             st.switch_page("pages/plaxis.py")
 
         if st.button("🗺️ GeoTolk", use_container_width=True, key="btn_geotolk"):
-            st.session_state.geotolk_step = 1
-            st.session_state.geotolk_files = []
             _log_project(project['id'], 'GeoTolk', 'GeoTolk startet')
             st.switch_page("pages/geotolk.py")
 
@@ -223,10 +343,14 @@ def show_project_view():
             _log_project(project['id'], 'Rapport', 'Rapport generering startet')
             st.success("Rapport generering startet! (Demo)")
 
-    # Recent activity log
-    st.markdown("---")
+
+# ---------------------------------------------------------------------------
+# Tab: Logg (activity log + project info)
+# ---------------------------------------------------------------------------
+
+def _tab_logg(project: dict):
     st.markdown("### 📋 Siste aktiviteter")
-    recent_activities = _cached_project_activities(project['id'], 10)
+    recent_activities = _cached_project_activities(project['id'], 20)
     if recent_activities:
         for act in recent_activities:
             ts   = (act.get('timestamp') or '')[:16]
@@ -252,6 +376,44 @@ def show_project_view():
         allowed = project.get('allowed_users', [])
         if allowed:
             st.write(f"**Brukere med tilgang:** {', '.join(allowed)}")
+
+
+# ---------------------------------------------------------------------------
+# Project detail view — 4 tabs
+# ---------------------------------------------------------------------------
+
+def show_project_view():
+    """Show project detail view with tabs."""
+    project = st.session_state.selected_project
+    if not project:
+        st.rerun()
+        return
+
+    # Auto-load geo data
+    _ensure_project_geo_loaded(project)
+
+    if st.button("← Tilbake til oversikt"):
+        st.session_state.selected_project = None
+        st.rerun()
+
+    st.subheader(f"📁 {project['name']}")
+    st.caption(project.get('description') or 'Ingen beskrivelse')
+
+    tab_oversikt, tab_data, tab_aktiviteter, tab_logg = st.tabs(
+        ["🗺️ Oversikt", "📊 Data", "🚀 Aktiviteter", "📋 Logg"]
+    )
+
+    with tab_oversikt:
+        _tab_oversikt(project)
+
+    with tab_data:
+        _tab_data(project)
+
+    with tab_aktiviteter:
+        _tab_aktiviteter(project)
+
+    with tab_logg:
+        _tab_logg(project)
 
 
 # ---------------------------------------------------------------------------
