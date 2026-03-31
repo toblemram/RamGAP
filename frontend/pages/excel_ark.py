@@ -9,7 +9,7 @@ st.info(
     "Her finner du standardiserte Excel-ark for beregninger og dokumentasjon.\n\n"
     "_Funksjonalitet er under utvikling._"
 )
-st.markdown("#### Planlagte regneark")
+st.markdown("#### Planlagte regneark TENK TBM")
 st.markdown("""
 - 🏗️ Ramme- og pelekapasitet  
 - 📐 Setningsberegning  

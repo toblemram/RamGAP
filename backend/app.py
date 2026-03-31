@@ -19,6 +19,7 @@ from activities.geotolk.routes       import geotolk_bp
 from activities.projects.routes      import projects_bp
 from activities.modeling.routes       import modeling_bp
 from activities.plaxis_agent.routes  import plaxis_agent_bp
+from activities.geogpt.routes        import geogpt_bp
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -33,6 +34,7 @@ app.register_blueprint(geotolk_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(modeling_bp)
 app.register_blueprint(plaxis_agent_bp)
+app.register_blueprint(geogpt_bp)
 
 # Initialize database on startup.
 # Flask debug mode spawns two processes (supervisor + worker). Guard against

@@ -27,6 +27,9 @@ faiss-cpu>=1.7.0         # Vector similarity search
 numpy>=1.24.0            # Numerical operations
 pypdf>=4.0.0             # PDF text extraction
 
+# GeoGPT — Azure AI Search (RAG)
+azure-search-documents>=11.4.0  # Azure AI Search SDK
+
 # Development
 python-dotenv>=1.0.0
 pytest>=7.4.0          # Test runner
