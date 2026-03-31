@@ -5,6 +5,22 @@ import streamlit as st
 from components.auth import require_username
 from components.api_client import APIClient
 
+
+def _pick_folder(initial_dir: str = "") -> str:
+    """Open a native Windows folder-picker dialog and return the chosen path."""
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.wm_attributes("-topmost", 1)
+    kwargs = {}
+    if initial_dir:
+        kwargs["initialdir"] = initial_dir
+    folder = filedialog.askdirectory(**kwargs)
+    root.destroy()
+    return folder or ""
+
+
 USERNAME = require_username()
 api = APIClient()
 
@@ -19,13 +35,29 @@ st.markdown("---")
 
 st.markdown("### Opprett nytt prosjekt")
 
+# Session state for folder picker (outside form)
+if "new_project_folder" not in st.session_state:
+    st.session_state.new_project_folder = ""
+
+col_folder, col_browse = st.columns([4, 1])
+with col_folder:
+    st.session_state.new_project_folder = st.text_input(
+        "Prosjektmappe",
+        value=st.session_state.new_project_folder,
+        key="new_project_folder_input",
+        help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn",
+    )
+with col_browse:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("📂 Bla gjennom…", key="browse_new_folder", use_container_width=True):
+        chosen = _pick_folder(st.session_state.new_project_folder)
+        if chosen:
+            st.session_state.new_project_folder = chosen
+            st.rerun()
+
 with st.form("create_project_form"):
     project_name = st.text_input("Prosjektnavn *")
     project_description = st.text_area("Beskrivelse")
-    project_folder = st.text_input(
-        "Prosjektmappe",
-        help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn",
-    )
     allowed_users_input = st.text_input(
         "Brukernavn med tilgang (kommaseparert)",
         help="Skriv inn Windows-brukernavn separert med komma. Du får automatisk tilgang.",
@@ -37,6 +69,7 @@ with st.form("create_project_form"):
             st.error("Prosjektnavn er påkrevd")
         else:
             allowed_users = [u.strip() for u in allowed_users_input.split(",") if u.strip()]
+            project_folder = st.session_state.new_project_folder
 
             result = api.create_project(project_name, project_description, USERNAME, allowed_users, project_folder)
 
@@ -66,11 +99,20 @@ if projects:
 
             # Rediger prosjektmappe
             st.markdown("---")
-            new_folder = st.text_input(
-                "Endre prosjektmappe",
-                value=project.get('folder_path') or '',
-                key=f"folder_{project['id']}",
-            )
+            fc, bc = st.columns([4, 1])
+            with fc:
+                new_folder = st.text_input(
+                    "Endre prosjektmappe",
+                    value=project.get('folder_path') or '',
+                    key=f"folder_{project['id']}",
+                )
+            with bc:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("📂", key=f"browse_folder_{project['id']}", use_container_width=True):
+                    chosen = _pick_folder(project.get('folder_path') or '')
+                    if chosen:
+                        st.session_state[f"folder_{project['id']}"] = chosen
+                        st.rerun()
             if st.button("💾 Lagre mappe", key=f"save_folder_{project['id']}"):
                 res = api.update_project(project['id'], USERNAME, folder_path=new_folder)
                 if res.get('success'):
