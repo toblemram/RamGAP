@@ -62,6 +62,7 @@ def create_project():
     name          = data.get('name')
     description   = data.get('description', '')
     created_by    = data.get('created_by')
+    folder_path   = data.get('folder_path', '')
     allowed_users = data.get('allowed_users', [])
 
     if not name or not created_by:
@@ -69,7 +70,7 @@ def create_project():
 
     db = get_db_session()
     try:
-        project = Project(name=name, description=description, created_by=created_by)
+        project = Project(name=name, description=description, created_by=created_by, folder_path=folder_path or None)
         db.add(project)
         db.flush()
 
@@ -120,6 +121,8 @@ def update_project(project_id: int):
             project.description = data['description']
         if 'project_owner' in data:
             project.project_owner = data['project_owner']
+        if 'folder_path' in data:
+            project.folder_path = data['folder_path'] or None
 
         db.commit()
         return jsonify({'success': True, 'project': project.to_dict()})

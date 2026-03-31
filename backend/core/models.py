@@ -35,6 +35,7 @@ class Project(Base):
     description   = Column(Text, nullable=True)
     created_by    = Column(String(255), nullable=False)  # Windows username
     project_owner = Column(String(255), nullable=True)   # Prosjektansvarlig
+    folder_path   = Column(String(500), nullable=True)    # Lokal mappesti
     created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     is_active     = Column(Boolean, default=True)
@@ -50,6 +51,7 @@ class Project(Base):
             'description':   self.description,
             'created_by':    self.created_by,
             'project_owner': self.project_owner or self.created_by,
+            'folder_path':   self.folder_path,
             'created_at':    self.created_at.isoformat() if self.created_at else None,
             'updated_at':    self.updated_at.isoformat() if self.updated_at else None,
             'is_active':     self.is_active,

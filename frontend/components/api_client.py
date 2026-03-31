@@ -73,10 +73,12 @@ class APIClient:
         return result.get('projects', [])
 
     def create_project(self, name: str, description: str,
-                       created_by: str, allowed_users: List[str]) -> dict:
+                       created_by: str, allowed_users: List[str],
+                       folder_path: str = '') -> dict:
         return self._post('/api/projects', {
             'name': name, 'description': description,
             'created_by': created_by, 'allowed_users': allowed_users,
+            'folder_path': folder_path,
         })
 
     def delete_project(self, project_id: int, username: str, confirm: str) -> dict:
@@ -85,7 +87,8 @@ class APIClient:
 
     def update_project(self, project_id: int, username: str,
                        name: str = None, description: str = None,
-                       project_owner: str = None) -> dict:
+                       project_owner: str = None,
+                       folder_path: str = None) -> dict:
         payload: Dict[str, Any] = {'username': username}
         if name is not None:
             payload['name'] = name
@@ -93,6 +96,8 @@ class APIClient:
             payload['description'] = description
         if project_owner is not None:
             payload['project_owner'] = project_owner
+        if folder_path is not None:
+            payload['folder_path'] = folder_path
         return self._put(f'/api/projects/{project_id}', payload)
 
     def remove_project_access(self, project_id: int,

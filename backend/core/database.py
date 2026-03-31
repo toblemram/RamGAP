@@ -71,6 +71,12 @@ def init_db() -> None:
                     'ALTER TABLE projects ADD COLUMN project_owner VARCHAR(255)'
                 ))
             print('Migration: added project_owner column to projects')
+        if 'folder_path' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE projects ADD COLUMN folder_path VARCHAR(500)'
+                ))
+            print('Migration: added folder_path column to projects')
 
     print('Database initialized successfully')
 

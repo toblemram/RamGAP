@@ -246,6 +246,9 @@ def show_project_view():
     with st.expander("ℹ️ Prosjektinformasjon"):
         st.write(f"**Opprettet av:** {project.get('created_by')}")
         st.write(f"**Opprettet:** {project.get('created_at', '')[:10] if project.get('created_at') else 'Ukjent'}")
+        folder = project.get('folder_path')
+        if folder:
+            st.write(f"**Prosjektmappe:** {folder}")
         allowed = project.get('allowed_users', [])
         if allowed:
             st.write(f"**Brukere med tilgang:** {', '.join(allowed)}")
