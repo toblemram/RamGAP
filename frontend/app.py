@@ -45,6 +45,11 @@ pg = st.navigation(
             st.Page("pages/excel_ark.py", title="Excel-ark", icon="📊"),
             st.Page("pages/opplaering.py", title="Opplæring", icon="🎓"),
         ],
+        "Aktiviteter": [
+            st.Page("pages/plaxis.py", title="Plaxis automatisering", icon="🔧"),
+            st.Page("pages/geotolk.py", title="GeoTolk", icon="🗺️"),
+            st.Page("pages/modellering.py", title="Modellering", icon="🏗️"),
+        ],
         "System": [
             st.Page("pages/project_setup.py", title="Prosjektinnstillinger", icon="⚙️"),
             st.Page("pages/prosjekt_endringer.py", title="Prosjekt endringer", icon="📝"),

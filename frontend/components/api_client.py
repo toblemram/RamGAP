@@ -150,6 +150,9 @@ class APIClient:
     def plaxis_run(self, payload: dict) -> dict:
         return self._post('/api/plaxis/run', payload, timeout=300)
 
+    def plaxis_parametric_run(self, payload: dict) -> dict:
+        return self._post('/api/plaxis/parametric-run', payload, timeout=120)
+
     def get_plaxis_calculations(self, project_id: Optional[int] = None,
                                  limit: int = 10) -> List[dict]:
         params = {'limit': limit}
