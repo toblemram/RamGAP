@@ -25,6 +25,10 @@ def render_sidebar(username: str, current_page: str = ""):
     current_page : str
         Key of the currently active page (used to highlight the nav button).
     """
+    if st.session_state.get("_sidebar_rendered"):
+        return
+    st.session_state["_sidebar_rendered"] = True
+
     with st.sidebar:
         st.markdown("### 🏗️ RamGAP")
         st.divider()
@@ -41,7 +45,7 @@ def render_sidebar(username: str, current_page: str = ""):
 
         # Map page keys to their Streamlit page file paths
         _page_files = {
-            "app":              "app.py",
+            "app":              "pages/home.py",
             "geogpt":           "pages/geogpt.py",
             "standarder":       "pages/standarder.py",
             "excel_ark":        "pages/excel_ark.py",

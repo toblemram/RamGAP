@@ -96,6 +96,35 @@ def _log_activity(atype: str, aname: str):
     ).start()
 
 
+def _rerun_saved_calculation(calc_type: str, config: dict):
+    """Load a saved calculation's config into session state and navigate to Plaxis Level 3."""
+    st.session_state.plaxis_selected_function = calc_type
+    st.session_state.plaxis_level = 3
+    st.session_state.plaxis_connected = True  # assume still connected
+
+    if calc_type == "parametric_spunt":
+        st.session_state.para_ks_soil = config.get("ks_soil")
+        st.session_state.para_spunt_plate = config.get("plate")
+        st.session_state.para_soil_params = {
+            "su_values": config.get("su_values", ""),
+            "gamma_values": config.get("gamma_values", ""),
+        }
+        st.session_state.para_spunt_range = config.get("spunt_range", {})
+        st.session_state.para_phases_config = config.get("phases", {})
+        st.session_state.para_results = None
+        st.session_state.pop("para_saved_id", None)
+
+    elif calc_type == "water_sensitivity":
+        st.session_state.ws_water_values = config.get("water_values", "")
+        st.session_state.ws_plate = config.get("plate")
+        st.session_state.ws_phases_config = config.get("phases", {})
+        st.session_state.ws_results = None
+        st.session_state.pop("ws_saved_id", None)
+
+    _cached_calculations.clear()
+    st.switch_page("pages/plaxis.py")
+
+
 # ---------------------------------------------------------------------------
 # Session state defaults
 # ---------------------------------------------------------------------------
@@ -328,6 +357,7 @@ def _tab_aktiviteter(project: dict):
         calculations = _cached_calculations(project['id'], 10)
 
         if calculations:
+            import pandas as pd
             for calc in calculations:
                 status = calc.get('status', 'unknown')
                 status_text = {
@@ -342,26 +372,64 @@ def _tab_aktiviteter(project: dict):
                 activity_name = calc.get('activity_name', 'Plaxis beregning')
                 timestamp = calc.get('started_at', '')[:10] if calc.get('started_at') else ''
 
-                with st.expander(f"{status_icon} {activity_name} - {status_text}"):
-                    st.caption(f"Dato: {timestamp}")
+                # Detect new-style calculations (parametric / water_sensitivity)
+                res_data = calc.get('results') or {}
+                calc_type = res_data.get('calc_type')  # set by new save endpoint
+                config    = res_data.get('config', {})
+                rows      = res_data.get('rows', [])
 
-                    structures = calc.get('structures', {})
-                    spunts = structures.get('spunts', [])
-                    anchors = structures.get('anchors', [])
-                    if spunts or anchors:
-                        st.markdown("**Strukturer:**")
-                        if spunts:
-                            st.write(f"• Spunter: {', '.join(spunts)}")
-                        if anchors:
-                            st.write(f"• Ankere: {', '.join(anchors)}")
+                type_labels = {
+                    'parametric_spunt': '🔧 Parametrisk spunt',
+                    'water_sensitivity': '💧 Vannstandssensitivitet',
+                    'extract_results': '📊 Resultatuttak',
+                }
+                type_label = type_labels.get(calc_type, '')
+                header = f"{status_icon} {activity_name}"
+                if type_label:
+                    header += f" — {type_label}"
+                header += f" ({timestamp})"
 
-                    if status == 'completed':
-                        results = calc.get('results', {})
-                        if results and results.get('msf'):
+                with st.expander(header):
+                    st.caption(f"ID: {calc.get('id')} | Status: {status_text}")
+
+                    if calc_type and rows:
+                        # New-style: show results table
+                        df = pd.DataFrame(rows)
+                        st.dataframe(df, hide_index=True, use_container_width=True)
+
+                        # Summary line
+                        if calc_type == 'parametric_spunt':
+                            ks = config.get('ks_soil', '?')
+                            plate = config.get('plate', '?')
+                            su_vals = config.get('su_values', '')
+                            st.caption(f"KS-lag: {ks} | Spunt: {plate} | Su: {su_vals}")
+                        elif calc_type == 'water_sensitivity':
+                            wv = config.get('water_values', '')
+                            plate = config.get('plate', '?')
+                            st.caption(f"Spunt: {plate} | Vannstander: {wv}")
+
+                        # Rerun button
+                        if st.button("🔄 Kjør på nytt", key=f"rerun_home_{calc.get('id')}"):
+                            _rerun_saved_calculation(calc_type, config)
+
+                    else:
+                        # Old-style: show structures / MSF
+                        structures = calc.get('structures', {})
+                        spunts = structures.get('spunts', [])
+                        anchors = structures.get('anchors', [])
+                        if spunts or anchors:
+                            st.markdown("**Strukturer:**")
+                            if spunts:
+                                st.write(f"• Spunter: {', '.join(spunts)}")
+                            if anchors:
+                                st.write(f"• Ankere: {', '.join(anchors)}")
+
+                        if status == 'completed' and res_data.get('msf'):
                             st.markdown("**Resultater:**")
-                            for phase, value in results['msf'].items():
+                            for phase, value in res_data['msf'].items():
                                 st.write(f"• MSF {phase}: {value:.2f}" if value else f"• MSF {phase}: -")
-                    elif status == 'failed':
+
+                    if status == 'failed':
                         st.error(f"Feil: {calc.get('error_message', 'Ukjent feil')}")
         else:
             st.info("Ingen beregninger ennå. Start en ny aktivitet til høyre!")

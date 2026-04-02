@@ -153,6 +153,15 @@ class APIClient:
     def plaxis_parametric_run(self, payload: dict) -> dict:
         return self._post('/api/plaxis/parametric-run', payload, timeout=120)
 
+    def plaxis_water_sensitivity_run(self, payload: dict) -> dict:
+        return self._post('/api/plaxis/water-sensitivity-run', payload, timeout=120)
+
+    def plaxis_ai_quality_check(self, model_data: dict) -> dict:
+        return self._post('/api/plaxis/ai-quality-check', {'model_data': model_data}, timeout=60)
+
+    def plaxis_ai_report(self, payload: dict) -> dict:
+        return self._post('/api/plaxis/ai-report', payload, timeout=60)
+
     def get_plaxis_calculations(self, project_id: Optional[int] = None,
                                  limit: int = 10) -> List[dict]:
         params = {'limit': limit}
@@ -160,6 +169,9 @@ class APIClient:
             params['project_id'] = project_id
         result = self._get('/api/plaxis/calculations', params)
         return result.get('calculations', [])
+
+    def save_plaxis_calculation(self, payload: dict) -> dict:
+        return self._post('/api/plaxis/calculations', payload, timeout=30)
 
     def rerun_plaxis_calculation(self, calc_id: int, input_password: str,
                                   output_password: str = None,

@@ -41,6 +41,11 @@ _DEFAULTS = {
     "para_spunt_range":         {},
     "para_phases_config":       {},
     "para_results":             None,
+    # Water sensitivity state
+    "ws_water_values":          "",
+    "ws_plate":                 None,
+    "ws_phases_config":         {},
+    "ws_results":               None,
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -215,6 +220,21 @@ def show_level1():
                         if is_fos:
                             st.caption("⚠️ Sikkerhetsfase (phi/c-reduksjon)")
 
+            # AI Quality Check
+            st.markdown("---")
+            st.markdown("#### 🤖 AI-kvalitetssjekk av modell")
+            st.caption("AI analyserer modellen og flagger potensielle problemer.")
+            if st.button("🔍 Kjør AI-kvalitetssjekk", use_container_width=True, key="ai_qc_btn"):
+                with st.spinner("AI analyserer modellen..."):
+                    qc = api.plaxis_ai_quality_check(model)
+                    if qc.get("success"):
+                        st.session_state["_ai_qc_report"] = qc.get("report", "")
+                    else:
+                        st.error(f"AI-feil: {qc.get('error')}")
+
+            if st.session_state.get("_ai_qc_report"):
+                st.markdown(st.session_state["_ai_qc_report"])
+
             st.markdown("---")
             if st.button("Neste → Velg funksjon", type="primary", use_container_width=True):
                 st.session_state.plaxis_level = 2
@@ -232,6 +252,9 @@ def show_level2():
     FUNCTIONS = [
         {"id": "parametric_spunt", "name": "Parametrisk spuntberegning",
          "desc": "Varier jordparametere og spuntdybde, kjør beregning automatisk og sammenlign resultater (FoS, deformasjon, krefter)",
+         "enabled": True},
+        {"id": "water_sensitivity", "name": "Vannstandssensitivitet",
+         "desc": "Varier grunnvannstand og analyser effekt på sikkerhetsfaktor, deformasjon og krefter",
          "enabled": True},
         {"id": "extract_results", "name": "Uttak av spuntberegninger",
          "desc": "Hent ut resultater for kapasitetssjekk, Msf, og deformasjoner", "enabled": True},
@@ -1026,6 +1049,155 @@ def _run_parametric_study(combos, phases_config):
     st.rerun()
 
 
+# --------------------------------------------------------- save / load helpers
+
+def _show_save_button(calc_type: str, activity_name: str, config: dict, results: list, key_prefix: str):
+    """Show a 'Lagre beregning' button and handle saving to the database."""
+    save_key = f"{key_prefix}_saved_id"
+
+    if st.session_state.get(save_key):
+        st.success(f"✅ Beregning lagret (ID: {st.session_state[save_key]})")
+        return
+
+    name = st.text_input(
+        "Beregningsnavn",
+        value=activity_name,
+        key=f"{key_prefix}_save_name",
+    )
+    if st.button("💾 Lagre beregning", type="primary", key=f"{key_prefix}_save_btn"):
+        proj = st.session_state.selected_project
+        payload = {
+            "activity_name": name,
+            "username":      st.session_state.get("username", "default"),
+            "project_id":    proj.get("id") if proj else None,
+            "calc_type":     calc_type,
+            "config":        config,
+            "results":       results,
+            "input_port":    st.session_state.plaxis_port,
+            "output_port":   st.session_state.plaxis_output_port,
+        }
+        try:
+            resp = api.save_plaxis_calculation(payload)
+            if resp.get("success"):
+                st.session_state[save_key] = resp.get("calculation_id")
+                st.rerun()
+            else:
+                st.error(f"Kunne ikke lagre: {resp.get('error')}")
+        except Exception as exc:
+            st.error(f"Feil ved lagring: {exc}")
+
+
+def _show_ai_report_button(calc_type: str, config: dict, results: list, key_prefix: str):
+    """Show AI report generation button on Level 5."""
+    st.markdown("#### 🤖 AI-beregningsrapport")
+    st.caption("Generer en profesjonell geoteknisk rapport basert på resultatene.")
+
+    if st.button("📝 Generer AI-rapport", use_container_width=True, key=f"{key_prefix}_ai_rpt_btn"):
+        with st.spinner("AI genererer rapport..."):
+            model = st.session_state.plaxis_model_data or {}
+            payload = {
+                "calc_type":  calc_type,
+                "config":     config,
+                "results":    results,
+                "model_data": {
+                    "structures": model.get("structures", {}),
+                    "geometry":   model.get("geometry", {}),
+                    "phases":     model.get("phases", []),
+                },
+            }
+            resp = api.plaxis_ai_report(payload)
+            if resp.get("success"):
+                st.session_state[f"_{key_prefix}_ai_report"] = resp.get("report", "")
+            else:
+                st.error(f"AI-feil: {resp.get('error')}")
+
+    report = st.session_state.get(f"_{key_prefix}_ai_report")
+    if report:
+        with st.expander("📄 AI-beregningsrapport", expanded=True):
+            st.markdown(report)
+
+
+def _show_saved_calculations():
+    """Show a list of saved calculations with an option to reload/re-run them."""
+    import pandas as pd
+
+    proj = st.session_state.selected_project
+    project_id = proj.get("id") if proj else None
+    try:
+        calcs = api.get_plaxis_calculations(project_id=project_id, limit=20)
+    except Exception:
+        calcs = []
+
+    if not calcs:
+        return
+
+    st.markdown("---")
+    st.markdown("#### 📋 Lagrede beregninger")
+
+    for calc in calcs:
+        calc_id = calc.get("id")
+        name    = calc.get("activity_name", "Ukjent")
+        status  = calc.get("status", "?")
+        ts      = calc.get("completed_at", calc.get("started_at", ""))
+        if ts:
+            ts = ts[:16].replace("T", " ")
+
+        res_data = calc.get("results") or {}
+        calc_type = res_data.get("calc_type", "unknown")
+        config    = res_data.get("config", {})
+        rows      = res_data.get("rows", [])
+
+        type_labels = {
+            "parametric_spunt": "Parametrisk spunt",
+            "water_sensitivity": "Vannstand",
+            "extract_results": "Resultatuttak",
+        }
+        type_label = type_labels.get(calc_type, calc_type)
+
+        with st.expander(f"**{name}** — {type_label} ({ts})", expanded=False):
+            st.caption(f"ID: {calc_id} | Status: {status}")
+
+            if rows:
+                df = pd.DataFrame(rows)
+                st.dataframe(df, hide_index=True, use_container_width=True)
+
+            # Show config summary
+            if config:
+                with st.popover("Vis konfigurasjon"):
+                    st.json(config)
+
+            # Re-run button — loads config back into session state
+            if st.button("🔄 Kjør på nytt", key=f"rerun_{calc_id}"):
+                _reload_calculation(calc_type, config, rows)
+
+
+def _reload_calculation(calc_type: str, config: dict, rows: list):
+    """Reload a saved calculation's config into session state and jump to its Level 3."""
+    st.session_state.plaxis_selected_function = calc_type
+
+    if calc_type == "parametric_spunt":
+        st.session_state.para_ks_soil = config.get("ks_soil")
+        st.session_state.para_spunt_plate = config.get("plate")
+        st.session_state.para_soil_params = {
+            "su_values": config.get("su_values", ""),
+            "gamma_values": config.get("gamma_values", ""),
+        }
+        st.session_state.para_spunt_range = config.get("spunt_range", {})
+        st.session_state.para_phases_config = config.get("phases", {})
+        st.session_state.para_results = None
+        st.session_state.pop("para_saved_id", None)
+
+    elif calc_type == "water_sensitivity":
+        st.session_state.ws_water_values = config.get("water_values", "")
+        st.session_state.ws_plate = config.get("plate")
+        st.session_state.ws_phases_config = config.get("phases", {})
+        st.session_state.ws_results = None
+        st.session_state.pop("ws_saved_id", None)
+
+    st.session_state.plaxis_level = 3
+    st.rerun()
+
+
 def show_para_level5():
     """Parametric Level 5: Display results in a comparison table and charts."""
     import pandas as pd
@@ -1098,6 +1270,39 @@ def show_para_level5():
             )
             st.plotly_chart(fig3, use_container_width=True)
 
+    # AI Report
+    st.markdown("---")
+    _show_ai_report_button(
+        calc_type="parametric_spunt",
+        config={
+            "ks_soil": st.session_state.para_ks_soil,
+            "plate": st.session_state.para_spunt_plate,
+            "su_values": st.session_state.para_soil_params.get("su_values", ""),
+            "gamma_values": st.session_state.para_soil_params.get("gamma_values", ""),
+            "spunt_range": st.session_state.para_spunt_range,
+            "phases": st.session_state.para_phases_config,
+        },
+        results=results,
+        key_prefix="para",
+    )
+
+    # Save calculation
+    st.markdown("---")
+    _show_save_button(
+        calc_type="parametric_spunt",
+        activity_name="Parametrisk spuntberegning",
+        config={
+            "ks_soil": st.session_state.para_ks_soil,
+            "plate": st.session_state.para_spunt_plate,
+            "su_values": st.session_state.para_soil_params.get("su_values", ""),
+            "gamma_values": st.session_state.para_soil_params.get("gamma_values", ""),
+            "spunt_range": st.session_state.para_spunt_range,
+            "phases": st.session_state.para_phases_config,
+        },
+        results=results,
+        key_prefix="para",
+    )
+
     # Navigation
     st.markdown("---")
     c1, c2 = st.columns(2)
@@ -1108,6 +1313,356 @@ def show_para_level5():
     with c2:
         if st.button("🔄 Kjør på nytt", use_container_width=True):
             st.session_state.para_results = None
+            st.session_state.plaxis_level = 4
+            st.rerun()
+
+
+# -------------------------------------------------------- water sensitivity UI
+
+def show_ws_level3():
+    """Water Sensitivity Level 3: Configure water levels and plate to evaluate."""
+    st.markdown("### Nivå 3 – Vannstandssensitivitet — oppsett")
+    st.caption(
+        "Definer vannstandsintervall og velg spunt og faser som skal evalueres. "
+        "Plaxis endrer grunnvannstand trinnvis og beregner for hvert nivå."
+    )
+
+    model = st.session_state.plaxis_model_data
+    if not model:
+        st.error("Ingen modelldata tilgjengelig")
+        return
+
+    structs = model.get("structures", {})
+    phases  = model.get("phases", [])
+    geo     = model.get("geometry", {})
+
+    current_wh = geo.get("water_head", 0)
+    ymax = geo.get("ymax", 3.0)
+    ymin = geo.get("ymin", -15.0)
+
+    # Apply any value generated by the interval tab BEFORE widgets are rendered.
+    # (Streamlit forbids writing to a keyed widget's state after instantiation.)
+    if "_ws_pending_values" in st.session_state:
+        st.session_state.ws_water_values = st.session_state.pop("_ws_pending_values")
+
+    # ---- Section 1: Water level range ----
+    st.markdown("---")
+    st.markdown("#### 1. Vannstandsverdier")
+    st.caption(
+        f"Nåværende grunnvannstand i modellen: **{current_wh} m**. "
+        "Angi verdier som komma-separert liste, eller bruk intervall-generatoren."
+    )
+
+    tab_manual, tab_range = st.tabs(["Manuell liste", "Intervall"])
+
+    with tab_manual:
+        # No key= so that value= is always respected (avoids Streamlit keyed-widget
+        # restriction where value= is ignored after first render).
+        entered = st.text_input(
+            "Vannstandsverdier (m) — komma-separert",
+            value=st.session_state.ws_water_values or f"{current_wh}",
+            help="F.eks. '-1, 0, 0.5, 1.0, 1.5, 2.0, 2.5'",
+        )
+        st.session_state.ws_water_values = entered
+
+    with tab_range:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            wl_min = st.number_input("Fra (m)", value=float(ymin / 2), step=0.5, format="%.1f", key="ws_wl_min")
+        with c2:
+            wl_max = st.number_input("Til (m)", value=float(ymax), step=0.5, format="%.1f", key="ws_wl_max")
+        with c3:
+            wl_step = st.number_input("Steg (m)", value=0.5, min_value=0.1, step=0.1, format="%.1f", key="ws_wl_step")
+
+        if st.button("Generer verdier", key="ws_generate"):
+            import numpy as np
+            vals = list(np.arange(wl_min, wl_max + wl_step * 0.01, wl_step))
+            # Store in a pending key — applied at the TOP of the next render,
+            # before the text_input widget is instantiated (Streamlit requirement).
+            st.session_state["_ws_pending_values"] = ", ".join(f"{v:.1f}" for v in vals)
+            st.rerun()
+
+    # Parse values for preview
+    wl_vals = [
+        v.strip()
+        for v in st.session_state.ws_water_values.split(",")
+        if v.strip()
+    ]
+    n_wl = len(wl_vals)
+    if n_wl > 0:
+        st.info(f"**{n_wl}** vannstandsnivåer: {', '.join(wl_vals)} m")
+
+    # ---- Section 2: Plate selection ----
+    st.markdown("---")
+    st.markdown("#### 2. Velg spunt å evaluere")
+
+    plates = structs.get("plates", []) + structs.get("embedded_beams", [])
+    plate_names = [p["name"] for p in plates]
+
+    sel_plate = st.selectbox(
+        "Spunt",
+        options=plate_names,
+        index=(plate_names.index(st.session_state.ws_plate)
+               if st.session_state.ws_plate in plate_names else 0),
+        key="ws_plate_select",
+    )
+    st.session_state.ws_plate = sel_plate
+
+    # ---- Section 3: Phase selection ----
+    st.markdown("---")
+    st.markdown("#### 3. Faser å evaluere")
+
+    pc = st.session_state.ws_phases_config
+    if not pc:
+        pc["fos_phase"] = None
+        pc["disp_phase"] = None
+        pc["cap_phase"] = None
+
+    phase_names = [p["name"] for p in phases]
+    fos_phases = [p["name"] for p in phases if p.get("calc_type_id") == 7]
+
+    pc["fos_phase"] = st.selectbox(
+        "🔴 FoS-fase (sikkerhetsfaktor)",
+        options=fos_phases if fos_phases else phase_names,
+        index=0,
+        key="ws_fos_phase",
+    )
+    pc["disp_phase"] = st.selectbox(
+        "📏 Deformasjonsfase (maks Ux)",
+        options=phase_names,
+        index=min(len(phase_names) - 1, len(phase_names) - 2) if len(phase_names) > 1 else 0,
+        key="ws_disp_phase",
+    )
+    pc["cap_phase"] = st.selectbox(
+        "💪 Kapasitetsfase (maks moment)",
+        options=phase_names,
+        index=min(len(phase_names) - 1, len(phase_names) - 2) if len(phase_names) > 1 else 0,
+        key="ws_cap_phase",
+    )
+
+    # ---- Summary ----
+    st.markdown("---")
+    st.markdown("#### Oppsummering")
+    st.write(f"**{n_wl}** vannstandsnivåer × **1** spunt = **{n_wl}** beregningskjøringer")
+    if n_wl > 20:
+        st.warning("⚠️ Mange kjøringer — dette kan ta lang tid!")
+
+    # ---- Navigation ----
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← Forrige", use_container_width=True, key="ws3_back"):
+            st.session_state.plaxis_level = 2
+            st.rerun()
+    with c2:
+        can_proceed = n_wl > 0 and sel_plate
+        if st.button("Neste → Kjør beregninger", type="primary",
+                     use_container_width=True, disabled=not can_proceed, key="ws3_next"):
+            st.session_state.plaxis_level = 4
+            st.rerun()
+
+
+def show_ws_level4():
+    """Water Sensitivity Level 4: Run the water-level study."""
+    st.markdown("### Nivå 4 – Kjør vannstandssensitivitet")
+
+    wl_vals = [
+        float(v.strip())
+        for v in st.session_state.ws_water_values.split(",")
+        if v.strip()
+    ]
+    pc = st.session_state.ws_phases_config
+
+    st.write(f"**Antall beregninger:** {len(wl_vals)}")
+
+    import pandas as pd
+    df_preview = pd.DataFrame({"Vannstand (m)": wl_vals})
+    st.dataframe(df_preview, hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← Forrige", use_container_width=True, key="ws4_back"):
+            st.session_state.plaxis_level = 3
+            st.rerun()
+    with c2:
+        if st.button("🚀 Start vannstandsanalyse", type="primary",
+                     use_container_width=True, key="ws4_run"):
+            _run_water_sensitivity(wl_vals, pc)
+
+
+def _run_water_sensitivity(wl_vals, phases_config):
+    """Execute the water-level sensitivity study."""
+    progress = st.progress(0)
+    status   = st.empty()
+    results  = []
+
+    for i, wl in enumerate(wl_vals):
+        pct = int((i / len(wl_vals)) * 100)
+        progress.progress(pct)
+        status.text(f"Kjører beregning {i+1}/{len(wl_vals)}: vannstand = {wl} m ...")
+
+        payload = {
+            "session_id":      st.session_state.get("username", "default"),
+            "water_level":     wl,
+            "plate":           st.session_state.ws_plate,
+            "fos_phase":       phases_config.get("fos_phase"),
+            "disp_phase":      phases_config.get("disp_phase"),
+            "cap_phase":       phases_config.get("cap_phase"),
+            "output_port":     st.session_state.plaxis_output_port,
+            "output_password": st.session_state.plaxis_output_password,
+        }
+
+        try:
+            result = api.plaxis_water_sensitivity_run(payload)
+        except Exception:
+            result = {"success": False, "error": "Endepunkt ikke tilgjengelig ennå"}
+
+        row = {
+            "Vannstand (m)":   wl,
+            "FoS":             result.get("msf", "–"),
+            "Ux_max (mm)":     result.get("ux_max", "–"),
+            "M_max (kNm/m)":   result.get("m_max", "–"),
+            "Status":          "✅" if result.get("success") else f"❌ {result.get('error', '')}",
+        }
+        results.append(row)
+
+    progress.progress(100)
+    status.text("Ferdig!")
+    st.session_state.ws_results = results
+    st.session_state.plaxis_level = 5
+    st.rerun()
+
+
+def show_ws_level5():
+    """Water Sensitivity Level 5: Display results."""
+    import pandas as pd
+
+    st.markdown("### Nivå 5 – Vannstandssensitivitet — resultater")
+
+    results = st.session_state.ws_results
+    if not results:
+        st.info("Ingen resultater ennå. Gå tilbake og kjør beregningen.")
+        if st.button("← Tilbake", key="ws5_empty_back"):
+            st.session_state.plaxis_level = 4
+            st.rerun()
+        return
+
+    df = pd.DataFrame(results)
+    st.markdown("#### Resultatoversikt")
+    st.dataframe(df, hide_index=True, use_container_width=True)
+
+    # Charts
+    numeric_cols = ["FoS", "Ux_max (mm)", "M_max (kNm/m)"]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df_valid = df.dropna(subset=[c for c in numeric_cols if c in df.columns])
+
+    if not df_valid.empty:
+        import plotly.express as px
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+
+        st.markdown("---")
+        st.markdown("#### Grafer")
+
+        # Combined subplot figure
+        fig = make_subplots(
+            rows=3, cols=1,
+            subplot_titles=("Sikkerhetsfaktor (FoS)", "Maks deformasjon Ux", "Maks moment M"),
+            shared_xaxes=True,
+            vertical_spacing=0.08,
+        )
+
+        x = df_valid["Vannstand (m)"]
+
+        if "FoS" in df_valid.columns:
+            fig.add_trace(
+                go.Scatter(x=x, y=df_valid["FoS"], mode="lines+markers",
+                           name="FoS", line=dict(color="#EF553B")),
+                row=1, col=1,
+            )
+            fig.add_hline(y=1.4, line_dash="dash", line_color="red",
+                          annotation_text="FoS krav = 1.4", row=1, col=1)
+
+        if "Ux_max (mm)" in df_valid.columns:
+            fig.add_trace(
+                go.Scatter(x=x, y=df_valid["Ux_max (mm)"], mode="lines+markers",
+                           name="Ux_max (mm)", line=dict(color="#636EFA")),
+                row=2, col=1,
+            )
+
+        if "M_max (kNm/m)" in df_valid.columns:
+            fig.add_trace(
+                go.Scatter(x=x, y=df_valid["M_max (kNm/m)"], mode="lines+markers",
+                           name="M_max (kNm/m)", line=dict(color="#00CC96")),
+                row=3, col=1,
+            )
+
+        fig.update_xaxes(title_text="Vannstand (m)", row=3, col=1)
+        fig.update_yaxes(title_text="FoS (Msf)", row=1, col=1)
+        fig.update_yaxes(title_text="Ux (mm)", row=2, col=1)
+        fig.update_yaxes(title_text="M (kNm/m)", row=3, col=1)
+        fig.update_layout(height=800, showlegend=False)
+
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Also individual line charts for clarity
+        if "FoS" in df_valid.columns:
+            geo = st.session_state.plaxis_model_data.get("geometry", {})
+            current_wh = geo.get("water_head")
+            fig_fos = px.line(
+                df_valid, x="Vannstand (m)", y="FoS",
+                title="Sikkerhetsfaktor vs. Vannstand",
+                markers=True,
+            )
+            fig_fos.add_hline(y=1.4, line_dash="dash", line_color="red",
+                              annotation_text="FoS krav = 1.4")
+            if current_wh is not None:
+                fig_fos.add_vline(x=current_wh, line_dash="dot", line_color="deepskyblue",
+                                  annotation_text=f"Nåværende GV = {current_wh} m")
+            st.plotly_chart(fig_fos, use_container_width=True)
+
+    # AI Report
+    st.markdown("---")
+    _show_ai_report_button(
+        calc_type="water_sensitivity",
+        config={
+            "water_values": st.session_state.ws_water_values,
+            "plate": st.session_state.ws_plate,
+            "phases": st.session_state.ws_phases_config,
+        },
+        results=results,
+        key_prefix="ws",
+    )
+
+    # Save calculation
+    st.markdown("---")
+    _show_save_button(
+        calc_type="water_sensitivity",
+        activity_name="Vannstandssensitivitet",
+        config={
+            "water_values": st.session_state.ws_water_values,
+            "plate": st.session_state.ws_plate,
+            "phases": st.session_state.ws_phases_config,
+        },
+        results=results,
+        key_prefix="ws",
+    )
+
+    # Navigation
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← Endre parametere", use_container_width=True, key="ws5_back"):
+            st.session_state.plaxis_level = 3
+            st.rerun()
+    with c2:
+        if st.button("🔄 Kjør på nytt", use_container_width=True, key="ws5_rerun"):
+            st.session_state.ws_results = None
             st.session_state.plaxis_level = 4
             st.rerun()
 
@@ -1131,6 +1686,8 @@ def main():
     # Progress indicator — labels depend on chosen function
     if fn == "parametric_spunt":
         levels = ["1. Tilkobling", "2. Funksjon", "3. Parametere", "4. Kjør", "5. Resultater"]
+    elif fn == "water_sensitivity":
+        levels = ["1. Tilkobling", "2. Funksjon", "3. Vannstand", "4. Kjør", "5. Resultater"]
     else:
         levels = ["1. Tilkobling", "2. Funksjon", "3. Spunt/Ankere", "4. Faser", "5. Output"]
 
@@ -1148,6 +1705,10 @@ def main():
         if   current == 3: show_para_level3()
         elif current == 4: show_para_level4()
         elif current == 5: show_para_level5()
+    elif current >= 3 and fn == "water_sensitivity":
+        if   current == 3: show_ws_level3()
+        elif current == 4: show_ws_level4()
+        elif current == 5: show_ws_level5()
     else:
         if   current == 3: show_level3()
         elif current == 4: show_level4()
