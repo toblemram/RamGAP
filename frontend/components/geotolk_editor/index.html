@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; background: transparent; }
+
+  #root {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    user-select: none;
+  }
+
+  #chart-wrap {
+    flex: 1;
+    position: relative;
+    min-width: 0;
+  }
+
+  #chart {
+    display: block;
+    width: 100%;
+    cursor: default;
+  }
+
+  #sidebar {
+    width: 140px;
+    min-width: 140px;
+    position: relative;
+  }
+
+  /* --- layer controls (material + delete) --- */
+  .layer-ctrl {
+    position: absolute;
+    right: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transform: translateY(-50%);
+    padding: 2px 0;
+  }
+
+  .swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid #888;
+    flex-shrink: 0;
+  }
+
+  .layer-ctrl select {
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* --- buttons --- */
+  .btn-circle {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid #bbb;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .btn-add { background: #e8f5e9; color: #2e7d32; }
+  .btn-add:hover { background: #a5d6a7; }
+  .btn-remove { background: #ffebee; color: #c62828; }
+  .btn-remove:hover { background: #ef9a9a; }
+  .btn-circle:disabled { opacity: 0.25; cursor: not-allowed; }
+
+  /* --- boundary add-button row --- */
+  .boundary-ctrl {
+    position: absolute;
+    right: 0;
+    left: 0;
+    display: flex;
+    justify-content: center;
+    transform: translateY(-50%);
+  }
+
+  /* --- drag tooltip --- */
+  #tooltip {
+    position: absolute;
+    display: none;
+    background: rgba(30,30,30,0.9);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 100;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<div id="root">
+  <div id="chart-wrap">
+    <canvas id="chart"></canvas>
+    <div id="tooltip"></div>
+  </div>
+  <div id="sidebar"></div>
+</div>
+
+<script>
+(function () {
+  /* ================================================================
+     Streamlit component communication (no external lib needed)
+     ================================================================ */
+  function sendMsg(type, data) {
+    window.parent.postMessage(
+      Object.assign({ isStreamlitMessage: true, type: type }, data || {}),
+      "*"
+    );
+  }
+  function stReady()    { sendMsg("streamlit:componentReady", { apiVersion: 1 }); }
+  function stHeight(h)  { sendMsg("streamlit:setFrameHeight", { height: h }); }
+  function stValue(v)   { sendMsg("streamlit:setComponentValue", { value: v }); }
+
+  /* ================================================================
+     State
+     ================================================================ */
+  var data       = null;   // sounding_data from Python
+  var layers     = [];     // [{type, start, end}, ...]
+  var maxDepth   = 10;
+  var maxC2      = 1000;
+  var materials  = [];
+  var colors     = {};
+  var ready      = false;
+
+  /* Version tracking to avoid stale render overwrites */
+  var localVersion   = 0;   // incremented on every local change (drag, add, remove, material)
+  var lastSentJson   = null; // JSON of last stValue we sent
+  var awaitingAck    = false; // true after stValue until Python echoes back matching layers
+
+  /* ================================================================
+     DOM references
+     ================================================================ */
+  var canvas    = document.getElementById("chart");
+  var sidebar   = document.getElementById("sidebar");
+  var tooltip   = document.getElementById("tooltip");
+  var chartWrap = document.getElementById("chart-wrap");
+  var ctx       = null;
+
+  /* ================================================================
+     Layout constants
+     ================================================================ */
+  var HEIGHT  = 700;
+  var MARGIN  = { top: 18, right: 12, bottom: 38, left: 56 };
+  var chartH  = HEIGHT - MARGIN.top - MARGIN.bottom;
+  var canvasW = 0;
+  var chartW  = 0;
+  var HIT_R   = 10;   // px – boundary grab zone
+
+  /* ================================================================
+     Scales
+     ================================================================ */
+  function yScale(depth) { return MARGIN.top + (depth / maxDepth) * chartH; }
+  function yInv(py)      { return Math.max(0, Math.min(maxDepth, ((py - MARGIN.top) / chartH) * maxDepth)); }
+  function xScale(val)   { return MARGIN.left + (val / maxC2) * chartW; }
+
+  /* ================================================================
+     Utilities
+     ================================================================ */
+  function hexRgba(hex, a) {
+    hex = hex.replace("#", "");
+    return "rgba(" + parseInt(hex.substr(0,2),16) + ","
+                   + parseInt(hex.substr(2,2),16) + ","
+                   + parseInt(hex.substr(4,2),16) + "," + a + ")";
+  }
+  function niceStep(range, maxTicks) {
+    var rough = range / maxTicks;
+    var mag   = Math.pow(10, Math.floor(Math.log10(rough)));
+    var r     = rough / mag;
+    var nice  = r <= 1.5 ? 1 : r <= 3 ? 2 : r <= 7 ? 5 : 10;
+    return nice * mag;
+  }
+  function getBounds() { return layers.slice(0, -1).map(function(l){ return l.end; }); }
+
+  /* ================================================================
+     Canvas setup (call on init / resize only)
+     ================================================================ */
+  function setupCanvas() {
+    canvasW = chartWrap.clientWidth;
+    if (canvasW < 100) canvasW = 400;
+    chartW = canvasW - MARGIN.left - MARGIN.right;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.style.width  = canvasW + "px";
+    canvas.style.height = HEIGHT + "px";
+    canvas.width  = canvasW * dpr;
+    canvas.height = HEIGHT * dpr;
+    ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /* ================================================================
+     Draw (called every frame during drag, and on data change)
+     ================================================================ */
+  function draw() {
+    if (!ctx || !data) return;
+    ctx.clearRect(0, 0, canvasW, HEIGHT);
+
+    /* --- layer colour bands --- */
+    layers.forEach(function (l) {
+      var y1 = yScale(l.start), y2 = yScale(l.end);
+      ctx.fillStyle = hexRgba(colors[l.type] || "#DDDDDD", 0.30);
+      ctx.fillRect(MARGIN.left, y1, chartW, y2 - y1);
+      /* label inside band */
+      ctx.fillStyle = "#555";
+      ctx.font = "11px sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(l.type, MARGIN.left + 6, (y1 + y2) / 2);
+    });
+
+    /* --- grid --- */
+    ctx.strokeStyle = "#e0e0e0";
+    ctx.lineWidth   = 0.5;
+    var dStep = niceStep(maxDepth, 12);
+    for (var d = 0; d <= maxDepth; d += dStep) {
+      var gy = yScale(d);
+      ctx.beginPath(); ctx.moveTo(MARGIN.left, gy); ctx.lineTo(MARGIN.left + chartW, gy); ctx.stroke();
+    }
+    var xStep = niceStep(maxC2, 8);
+    for (var v = 0; v <= maxC2; v += xStep) {
+      var gx = xScale(v);
+      ctx.beginPath(); ctx.moveTo(gx, MARGIN.top); ctx.lineTo(gx, MARGIN.top + chartH); ctx.stroke();
+    }
+
+    /* --- spyling (blue) & slag (red) bars --- */
+    var barW = Math.max(chartW * 0.035, 4);
+    (data.spyling || []).forEach(function (se) {
+      ctx.fillStyle = "rgba(33,150,243,0.50)";
+      ctx.fillRect(MARGIN.left, yScale(se[0]), barW, yScale(se[1]) - yScale(se[0]));
+    });
+    (data.slag || []).forEach(function (se) {
+      ctx.fillStyle = "rgba(229,57,53,0.45)";
+      ctx.fillRect(MARGIN.left + barW + 1, yScale(se[0]), barW, yScale(se[1]) - yScale(se[0]));
+    });
+
+    /* --- sounding curve --- */
+    var depths = data.depth || [];
+    var c2     = data.c2    || [];
+    if (depths.length) {
+      var step = Math.max(1, Math.floor(depths.length / 800));
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth   = 1.6;
+      ctx.beginPath();
+      for (var i = 0; i < depths.length; i += step) {
+        var px = xScale(c2[i]), py = yScale(depths[i]);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    /* --- boundary lines --- */
+    var bounds = getBounds();
+    bounds.forEach(function (b, bi) {
+      var by       = yScale(b);
+      var hot      = (bi === hoverIdx || bi === dragIdx);
+      /* glow */
+      if (hot) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(229,57,53,0.18)";
+        ctx.lineWidth   = 12;
+        ctx.beginPath(); ctx.moveTo(MARGIN.left, by); ctx.lineTo(MARGIN.left + chartW, by); ctx.stroke();
+        ctx.restore();
+      }
+      ctx.strokeStyle = hot ? "#c62828" : "#e53935";
+      ctx.lineWidth   = hot ? 2.8 : 2;
+      ctx.setLineDash([8, 5]);
+      ctx.beginPath(); ctx.moveTo(MARGIN.left, by); ctx.lineTo(MARGIN.left + chartW, by); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    /* --- Y axis labels --- */
+    ctx.fillStyle    = "#333";
+    ctx.font         = "11px sans-serif";
+    ctx.textAlign    = "right";
+    ctx.textBaseline = "middle";
+    for (var d2 = 0; d2 <= maxDepth; d2 += dStep)
+      ctx.fillText(d2.toFixed(1), MARGIN.left - 5, yScale(d2));
+
+    ctx.save();
+    ctx.translate(13, MARGIN.top + chartH / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.font = "12px sans-serif";
+    ctx.fillText("Dybde (m)", 0, 0);
+    ctx.restore();
+
+    /* --- X axis labels --- */
+    ctx.textAlign    = "center";
+    ctx.textBaseline = "top";
+    ctx.font         = "11px sans-serif";
+    for (var v2 = 0; v2 <= maxC2; v2 += xStep)
+      ctx.fillText(v2.toFixed(0), xScale(v2), MARGIN.top + chartH + 4);
+    ctx.fillText("Motstand", MARGIN.left + chartW / 2, MARGIN.top + chartH + 22);
+
+    /* --- chart border --- */
+    ctx.strokeStyle = "#aaa";
+    ctx.lineWidth   = 1;
+    ctx.strokeRect(MARGIN.left, MARGIN.top, chartW, chartH);
+
+    /* --- legend --- */
+    var lx = MARGIN.left + chartW - 145, ly = MARGIN.top + 6;
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.fillRect(lx, ly, 140, 52);
+    ctx.strokeStyle = "#ccc"; ctx.lineWidth = 0.5;
+    ctx.strokeRect(lx, ly, 140, 52);
+    ctx.font = "10px sans-serif"; ctx.fillStyle = "#444"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(33,150,243,0.5)"; ctx.fillRect(lx+6, ly+6, 10, 10);
+    ctx.fillStyle = "#444"; ctx.fillText("Spyling", lx+20, ly+12);
+    ctx.fillStyle = "rgba(229,57,53,0.45)"; ctx.fillRect(lx+6, ly+20, 10, 10);
+    ctx.fillStyle = "#444"; ctx.fillText("Slag", lx+20, ly+26);
+    ctx.setLineDash([5,3]); ctx.strokeStyle = "#e53935"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lx+6, ly+40); ctx.lineTo(lx+16, ly+40); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillText("Laggrense (dra)", lx+20, ly+40);
+  }
+
+  /* ================================================================
+     Sidebar controls
+     ================================================================ */
+  var ctrlEls = [];  // keep references for position updates
+
+  function buildControls() {
+    sidebar.innerHTML = "";
+    sidebar.style.height = HEIGHT + "px";
+    ctrlEls = [];
+
+    layers.forEach(function (layer, i) {
+      var div = document.createElement("div");
+      div.className = "layer-ctrl";
+      var cy = (yScale(layer.start) + yScale(layer.end)) / 2;
+      div.style.top = cy + "px";
+      div.dataset.kind = "layer";
+      div.dataset.idx  = i;
+
+      var sw = document.createElement("span");
+      sw.className = "swatch";
+      sw.style.background = colors[layer.type] || "#DDD";
+      div.appendChild(sw);
+
+      var sel = document.createElement("select");
+      materials.forEach(function (m) {
+        var opt = document.createElement("option");
+        opt.value = m; opt.textContent = m;
+        if (m === layer.type) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", function () {
+        layer.type = sel.value;
+        sw.style.background = colors[layer.type] || "#DDD";
+        draw();
+        sendLayers();
+      });
+      div.appendChild(sel);
+
+      var rm = document.createElement("button");
+      rm.className = "btn-circle btn-remove";
+      rm.textContent = "\u2212";  // −
+      rm.title = "Fjern lag";
+      rm.disabled = layers.length <= 1;
+      rm.addEventListener("click", function () { removeLayer(i); });
+      div.appendChild(rm);
+
+      sidebar.appendChild(div);
+      ctrlEls.push(div);
+    });
+
+    /* add-buttons at each boundary */
+    var bounds = getBounds();
+    bounds.forEach(function (b, bi) {
+      var div = document.createElement("div");
+      div.className = "boundary-ctrl";
+      div.style.top = yScale(b) + "px";
+      div.dataset.kind = "bound";
+      div.dataset.idx  = bi;
+
+      var btn = document.createElement("button");
+      btn.className = "btn-circle btn-add";
+      btn.textContent = "+";
+      btn.title = "Legg til lag her";
+      btn.addEventListener("click", function () { addLayerAt(bi); });
+      div.appendChild(btn);
+
+      sidebar.appendChild(div);
+      ctrlEls.push(div);
+    });
+  }
+
+  /** Only reposition existing controls (fast, used during drag). */
+  function repositionControls() {
+    var bounds = getBounds();
+    var nodeList = sidebar.childNodes;
+    for (var k = 0; k < nodeList.length; k++) {
+      var el = nodeList[k];
+      if (!el.dataset) continue;
+      var idx = parseInt(el.dataset.idx, 10);
+      if (el.dataset.kind === "layer") {
+        var cy = (yScale(layers[idx].start) + yScale(layers[idx].end)) / 2;
+        el.style.top = cy + "px";
+      } else if (el.dataset.kind === "bound") {
+        el.style.top = yScale(bounds[idx]) + "px";
+      }
+    }
+  }
+
+  /* ================================================================
+     Layer operations
+     ================================================================ */
+  function copyLayers() {
+    return layers.map(function (l) { return { type: l.type, start: l.start, end: l.end }; });
+  }
+
+  function sendLayers() {
+    var copy = copyLayers();
+    lastSentJson = JSON.stringify(copy);
+    awaitingAck  = true;
+    localVersion++;
+    stValue(copy);
+  }
+
+  function addLayerAt(bi) {
+    var below = layers[bi + 1];
+    var mid   = (below.start + below.end) / 2;
+    layers.splice(bi + 1, 0, { type: "annet", start: below.start, end: mid });
+    below.start = mid;
+    buildControls();
+    draw();
+    sendLayers();
+  }
+
+  function removeLayer(i) {
+    if (layers.length <= 1) return;
+    if (i === 0) {
+      layers[1].start = 0;
+    } else {
+      layers[i - 1].end = layers[i].end;
+    }
+    layers.splice(i, 1);
+    buildControls();
+    draw();
+    sendLayers();
+  }
+
+  /* ================================================================
+     Drag interaction
+     ================================================================ */
+  var dragIdx  = -1;
+  var hoverIdx = -1;
+  var dragging = false;
+  var rafId    = null;
+
+  function canvasPos(e) {
+    var r = canvas.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  }
+
+  function findBound(py) {
+    var bounds = getBounds();
+    for (var i = 0; i < bounds.length; i++) {
+      if (Math.abs(py - yScale(bounds[i])) < HIT_R) return i;
+    }
+    return -1;
+  }
+
+  canvas.addEventListener("mousedown", function (e) {
+    var p  = canvasPos(e);
+    var bi = findBound(p.y);
+    if (bi >= 0) {
+      dragIdx  = bi;
+      dragging = true;
+      canvas.style.cursor = "ns-resize";
+      e.preventDefault();
+    }
+  });
+
+  canvas.addEventListener("mousemove", function (e) {
+    var p = canvasPos(e);
+
+    if (dragging && dragIdx >= 0) {
+      var newD   = yInv(p.y);
+      var bounds = getBounds();
+      var minD   = dragIdx > 0                  ? bounds[dragIdx - 1] + 0.05 : 0.05;
+      var maxD   = dragIdx < bounds.length - 1  ? bounds[dragIdx + 1] - 0.05 : maxDepth - 0.05;
+      newD = Math.max(minD, Math.min(maxD, newD));
+
+      layers[dragIdx].end       = newD;
+      layers[dragIdx + 1].start = newD;
+
+      /* tooltip with distances */
+      var distUp   = newD - layers[dragIdx].start;
+      var distDown = layers[dragIdx + 1].end - newD;
+      tooltip.style.display = "block";
+      tooltip.style.left    = Math.min(p.x + 16, canvasW - 180) + "px";
+      tooltip.style.top     = (p.y - 40) + "px";
+      tooltip.innerHTML     = "\u2191 " + distUp.toFixed(2) + " m&ensp;|\u2003\u2193 " + distDown.toFixed(2) + " m"
+                            + "<br>Dybde: " + newD.toFixed(2) + " m";
+
+      /* throttle redraws to rAF */
+      if (!rafId) {
+        rafId = requestAnimationFrame(function () {
+          draw();
+          repositionControls();
+          rafId = null;
+        });
+      }
+      return;
+    }
+
+    /* hover highlight */
+    var newHover = findBound(p.y);
+    if (newHover !== hoverIdx) {
+      hoverIdx = newHover;
+      draw();
+    }
+    canvas.style.cursor = (hoverIdx >= 0) ? "ns-resize" : "default";
+  });
+
+  canvas.addEventListener("mouseup", function () {
+    if (dragging) {
+      dragging = false;
+      dragIdx  = -1;
+      canvas.style.cursor = "default";
+      tooltip.style.display = "none";
+      buildControls();
+      draw();
+      sendLayers();
+    }
+  });
+
+  canvas.addEventListener("mouseleave", function () {
+    if (!dragging) {
+      if (hoverIdx >= 0) { hoverIdx = -1; draw(); }
+      tooltip.style.display = "none";
+    }
+  });
+
+  /* ================================================================
+     Streamlit render event
+     ================================================================ */
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== "streamlit:render") return;
+    var args = event.data.args;
+
+    data      = args.sounding_data || {};
+    maxDepth  = args.max_depth || 10;
+    materials = args.materials || ["leire", "sand", "fjell", "annet"];
+    colors    = args.colors    || {};
+
+    /* compute maxC2 */
+    var c2arr = data.c2 || [];
+    maxC2 = 100;
+    for (var i = 0; i < c2arr.length; i++) { if (c2arr[i] > maxC2) maxC2 = c2arr[i]; }
+    maxC2 *= 1.08;
+
+    /* update layers from Python — but ignore stale renders after local changes */
+    if (!dragging) {
+      var incoming = JSON.stringify(args.layers || []);
+      if (awaitingAck) {
+        /* We sent a stValue and are waiting for Python to echo it back.
+           Accept render only if it matches what we sent (ack), otherwise skip. */
+        if (incoming === lastSentJson) {
+          awaitingAck = false;  // acknowledged
+        }
+        /* Either way, keep our local layers — they are authoritative */
+      } else if (incoming !== JSON.stringify(layers)) {
+        layers = JSON.parse(incoming);
+      }
+    }
+
+    if (!ready) {
+      ready = true;
+      setupCanvas();
+    } else {
+      /* Re-setup canvas if container width changed (Streamlit iframe resize) */
+      var newW = chartWrap.clientWidth;
+      if (newW > 0 && Math.abs(newW - canvasW) > 1) setupCanvas();
+    }
+    buildControls();
+    draw();
+  });
+
+  /* ================================================================
+     Init
+     ================================================================ */
+  stReady();
+  stHeight(HEIGHT + 4);
+
+  window.addEventListener("resize", function () {
+    if (ready) { setupCanvas(); buildControls(); draw(); }
+  });
+})();
+</script>
+</body>
+</html>
