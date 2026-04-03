@@ -19,6 +19,9 @@ def geotolk_editor(
     max_depth: float,
     materials: list,
     colors: dict,
+    elevation: float | None = None,
+    elev_range: list | None = None,
+    show_y_axis: bool = True,
     key: str | None = None,
 ) -> list:
     """Render an interactive layer editor and return updated layers.
@@ -32,9 +35,19 @@ def geotolk_editor(
     max_depth : float
         Maximum borehole depth in metres.
     materials : list[str]
-        Available material types (e.g. ``["leire", "sand", "fjell", "annet"]``).
+        Available material types.
     colors : dict[str, str]
         Hex colour per material type.
+    elevation : float | None
+        Terrain elevation (kvote) of this borehole. When set, switches
+        the Y-axis to elevation mode so boreholes at different heights
+        are visually offset.
+    elev_range : list | None
+        Shared ``[min_elev, max_elev]`` for the entire profile.
+        All editors on the same profile should receive the same range.
+    show_y_axis : bool
+        Whether to draw the Y-axis labels (set False for non-leftmost
+        editors in a multi-column layout).
     key : str | None
         Streamlit widget key.
 
@@ -49,6 +62,9 @@ def geotolk_editor(
         max_depth=max_depth,
         materials=materials,
         colors=colors,
+        elevation=elevation,
+        elev_range=elev_range,
+        show_y_axis=show_y_axis,
         key=key,
         default=layers,
     )
