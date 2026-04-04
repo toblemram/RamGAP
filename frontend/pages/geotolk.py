@@ -9,7 +9,9 @@ Multi-step workflow for interpreting SND ground-investigation files:
 """
 
 import io as _io
+import csv
 import math
+import os
 from itertools import combinations
 from pathlib import Path
 import matplotlib
@@ -269,6 +271,18 @@ def show_step3():
     if updated_layers:
         st.session_state.geotolk_layers = updated_layers
 
+    # Ødometer checkbox for this file
+    oedo_key = f"oedometer_{idx}"
+    if oedo_key not in st.session_state:
+        st.session_state[oedo_key] = cur.get("has_oedometer", False)
+    has_oedo = st.checkbox(
+        "Tolket med ødometer",
+        value=st.session_state[oedo_key],
+        key=f"oedo_cb_{idx}",
+    )
+    st.session_state[oedo_key] = has_oedo
+    cur["has_oedometer"] = has_oedo
+
     # Reset layers
     cr, _ = st.columns([1, 3])
     with cr:
@@ -283,11 +297,14 @@ def show_step3():
         if st.button("💾 Lagre tolkning", type="primary", use_container_width=True):
             files[idx]["layers"] = st.session_state.geotolk_layers
             files[idx]["status"] = "interpreted"
+            files[idx]["has_oedometer"] = has_oedo
             res = api.add_geotolk_interpretation(
                 st.session_state.geotolk_session_id,
                 cur["filename"],
                 cur["parsed_data"],
                 st.session_state.geotolk_layers,
+                has_oedometer=has_oedo,
+                snd_raw_content=cur.get("content", ""),
             )
             if res.get("success"):
                 st.success("✅ Tolkning lagret!")
@@ -298,13 +315,111 @@ def show_step3():
         done = sum(1 for f in files if f.get("status") == "interpreted")
         if st.button(f"✓ Fullfør ({done}/{len(files)} tolket)", use_container_width=True):
             if done > 0:
-                st.session_state.geotolk_step  = 1
-                st.session_state.geotolk_files  = []
-                st.session_state.geotolk_layers = []
-                st.success("Tolkningsøkt fullført!")
-                st.switch_page("pages/home.py")
+                _complete_session(files)
             else:
                 st.warning("Lagre minst én tolkning før du fullfører")
+
+
+# --------------------------------------------------------- complete & export
+
+def _build_csv_content(files: list, username: str) -> str:
+    """Build CSV string with interpretation results for all interpreted files."""
+    output = _io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Filnavn", "Lag_nr", "Materiale", "Fra_dybde_m", "Til_dybde_m",
+        "Tykkelse_m", "Max_dybde_m", "Har_oedometer", "Tolket_av",
+    ])
+    for f in files:
+        if f.get("status") != "interpreted":
+            continue
+        layers = f.get("layers", [])
+        max_depth = f.get("parsed_data", {}).get("max_depth", 0)
+        has_oedo = "Ja" if f.get("has_oedometer") else "Nei"
+        for i, layer in enumerate(layers, 1):
+            writer.writerow([
+                f["filename"],
+                i,
+                layer.get("type", ""),
+                f"{layer.get('start', 0):.2f}",
+                f"{layer.get('end', 0):.2f}",
+                f"{layer.get('end', 0) - layer.get('start', 0):.2f}",
+                f"{max_depth:.2f}",
+                has_oedo,
+                username,
+            ])
+    return output.getvalue()
+
+
+def _complete_session(files: list):
+    """
+    Called when the user clicks Fullfør:
+    1. Export CSV to project folder (or user-chosen folder)
+    2. Send all interpretation data to Azure DB for ML training
+    3. Log as activity
+    4. Reset state and navigate home
+    """
+    project = st.session_state.selected_project
+    session_id = st.session_state.geotolk_session_id
+
+    # --- 1. CSV export ---
+    csv_content = _build_csv_content(files, USERNAME)
+    activity_name = st.session_state.geotolk_activity_name or "GeoTolk"
+    safe_name = "".join(c if c.isalnum() or c in ("-", "_", " ") else "_" for c in activity_name)
+    csv_filename = f"GeoTolk_{safe_name}.csv"
+
+    folder_path = project.get("folder_path") if project else None
+
+    if folder_path and os.path.isdir(folder_path):
+        csv_path = os.path.join(folder_path, csv_filename)
+        try:
+            with open(csv_path, "w", encoding="utf-8-sig", newline="") as fh:
+                fh.write(csv_content)
+            st.success(f"CSV lagret: {csv_path}")
+        except OSError as exc:
+            st.error(f"Kunne ikke lagre CSV til prosjektmappe: {exc}")
+    else:
+        # No project folder — let user download directly
+        st.warning("Ingen prosjektmappe funnet. Last ned CSV-filen manuelt:")
+        st.download_button(
+            label="⬇️ Last ned tolkning (CSV)",
+            data=csv_content.encode("utf-8-sig"),
+            file_name=csv_filename,
+            mime="text/csv",
+        )
+
+    # --- 2. Send to Azure DB for ML training ---
+    interpreted_files = []
+    for f in files:
+        if f.get("status") != "interpreted":
+            continue
+        coords = _extract_coords_from_content(f.get("content", ""))
+        interpreted_files.append({
+            "filename":          f["filename"],
+            "parsed_data":       f["parsed_data"],
+            "layers":            f.get("layers", []),
+            "has_oedometer":     f.get("has_oedometer", False),
+            "status":            f["status"],
+            "interpretation_id": f.get("interpretation_id", 0),
+            "coords":            coords,
+            "snd_raw_content":   f.get("content", ""),
+        })
+
+    if session_id and interpreted_files:
+        with st.spinner("Sender data til ML-database..."):
+            res = api.complete_geotolk_session(session_id, interpreted_files, USERNAME)
+        if res.get("success"):
+            ml_count = res.get("ml_records", 0)
+            st.success(f"✅ Tolkningsøkt fullført! {ml_count} oppføringer sendt til ML-database.")
+        else:
+            st.error(f"Feil ved fullføring: {res.get('error')}")
+            return  # Stopp — ikke naviger bort ved feil
+
+    # --- 3. Reset and navigate home ---
+    st.session_state.geotolk_step   = 1
+    st.session_state.geotolk_files  = []
+    st.session_state.geotolk_layers = []
+    st.switch_page("pages/home.py")
 
 
 # ---------------------------------------------------------------- polyTolkning
@@ -668,6 +783,17 @@ def show_poly_tolkning():
                 st.markdown(f"**{name}** — {dist_str}")
                 st.caption(f"Kvote: {z_val:.1f} m | Dybde: {max_depth:.1f} m")
 
+                # Ødometer checkbox per borehole
+                oedo_poly_key = f"oedometer_poly_{fi}"
+                if oedo_poly_key not in st.session_state:
+                    st.session_state[oedo_poly_key] = f.get("has_oedometer", False)
+                has_oedo = st.checkbox(
+                    "Ødometer", value=st.session_state[oedo_poly_key],
+                    key=f"oedo_pcb_{fi}",
+                )
+                st.session_state[oedo_poly_key] = has_oedo
+                f["has_oedometer"] = has_oedo
+
                 # Per-file layers in session state
                 layer_key = f"poly_layers_{fi}"
                 if layer_key not in st.session_state:
@@ -703,14 +829,19 @@ def show_poly_tolkning():
                 f = files[fi]
                 layer_key = f"poly_layers_{fi}"
                 file_layers = st.session_state.get(layer_key, [])
+                oedo_poly_key = f"oedometer_poly_{fi}"
+                has_oedo = st.session_state.get(oedo_poly_key, False)
                 if file_layers:
                     f["layers"] = file_layers
                     f["status"] = "interpreted"
+                    f["has_oedometer"] = has_oedo
                     res = api.add_geotolk_interpretation(
                         st.session_state.geotolk_session_id,
                         f["filename"],
                         f["parsed_data"],
                         file_layers,
+                        has_oedometer=has_oedo,
+                        snd_raw_content=f.get("content", ""),
                     )
                     if res.get("success"):
                         saved += 1
@@ -718,11 +849,64 @@ def show_poly_tolkning():
                         st.warning(f"Feil ved lagring av {f['filename']}: {res.get('error')}")
             st.success(f"✅ {saved}/{len(idx_list)} tolkninger lagret!")
 
+        # Fullfør button (same as single interpretation)
+        done = sum(1 for f in files if f.get("status") == "interpreted")
+        if st.button(f"✓ Fullfør ({done}/{len(files)} tolket)", use_container_width=True,
+                     key="poly_complete"):
+            if done > 0:
+                _complete_session(files)
+            else:
+                st.warning("Lagre minst én tolkning før du fullfører")
+
 
 # ----------------------------------------------------------------------- page
 
+def _load_resumed_session():
+    """Load a session from the backend when resuming from home."""
+    resume_id = st.session_state.pop("geotolk_resume_session_id", None)
+    if not resume_id:
+        return
+    # Already loaded?
+    if st.session_state.geotolk_session_id == resume_id and st.session_state.geotolk_files:
+        return
+
+    with st.spinner("Laster tolkningsøkt…"):
+        res = api.get_geotolk_session_resume(resume_id)
+    if not res.get("success"):
+        st.error(f"Kunne ikke laste økt: {res.get('error')}")
+        return
+
+    session = res["session"]
+    files_data = []
+    for fd in session.get("files", []):
+        files_data.append({
+            "interpretation_id": fd["interpretation_id"],
+            "filename":          fd["filename"],
+            "content":           fd.get("content", ""),
+            "parsed_data":       fd["parsed_data"],
+            "layers":            fd.get("layers", []),
+            "has_oedometer":     fd.get("has_oedometer", False),
+            "status":            fd.get("status", "pending"),
+        })
+
+    st.session_state.geotolk_session_id    = resume_id
+    st.session_state.geotolk_activity_name = session.get("activity_name", "")
+    st.session_state.geotolk_files         = files_data
+    st.session_state.geotolk_current_file  = 0
+    st.session_state.geotolk_step          = 3
+    if files_data:
+        first = files_data[0]
+        if first.get("layers"):
+            st.session_state.geotolk_layers = first["layers"]
+        else:
+            _init_layers(first)
+
+
 def main():
     st.markdown("# 🗺️ GeoTolk")
+
+    # Check for resume from home page
+    _load_resumed_session()
 
     proj      = st.session_state.selected_project
     back_label = f"← Tilbake til {proj['name']}" if proj else "← Tilbake til hjem"

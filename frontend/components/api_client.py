@@ -198,12 +198,34 @@ class APIClient:
         })
 
     def add_geotolk_interpretation(self, session_id: int, filename: str,
-                                    parsed_data: dict, layers: list) -> dict:
+                                    parsed_data: dict, layers: list,
+                                    has_oedometer: bool = False,
+                                    snd_raw_content: str = None) -> dict:
         return self._post(f'/api/geotolk/sessions/{session_id}/interpretations', {
             'filename': filename,
             'parsed_data': parsed_data,
             'layers': layers,
+            'has_oedometer': has_oedometer,
+            'snd_raw_content': snd_raw_content,
         })
+
+    def complete_geotolk_session(self, session_id: int, files: list,
+                                  username: str) -> dict:
+        """Complete a GeoTolk session: store ML training data and log activity."""
+        return self._post(f'/api/geotolk/sessions/{session_id}/complete', {
+            'files': files,
+            'username': username,
+        }, timeout=120)
+
+    def get_geotolk_project_sessions(self, project_id: int, limit: int = 20) -> list:
+        """Get completed GeoTolk sessions for a project."""
+        result = self._get('/api/geotolk/project-sessions',
+                           {'project_id': project_id, 'limit': limit})
+        return result.get('sessions', [])
+
+    def get_geotolk_session_resume(self, session_id: int) -> dict:
+        """Get full session data (with parsed arrays + raw content) for resuming."""
+        return self._get(f'/api/geotolk/sessions/{session_id}/resume', timeout=30)
 
     # ------------------------------------------------------------------
     # Modeling
