@@ -100,6 +100,14 @@ class APIClient:
             payload['folder_path'] = folder_path
         return self._put(f'/api/projects/{project_id}', payload)
 
+    def add_project_access(self, project_id: int,
+                            username: str,
+                            granted_by: str) -> dict:
+        return self._post(
+            f'/api/projects/{project_id}/access',
+            {'username': username, 'granted_by': granted_by},
+        )
+
     def remove_project_access(self, project_id: int,
                                username_to_remove: str,
                                requesting_user: str) -> dict:
