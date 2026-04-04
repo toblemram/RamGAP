@@ -300,6 +300,45 @@ class APIClient:
         )
 
     # ------------------------------------------------------------------
+    # Tørmur V220
+    # ------------------------------------------------------------------
+
+    def save_tormur_params(self, activity_id: int, params: dict) -> dict:
+        return self._post(
+            f'/api/modeling/activities/{activity_id}/tormur-params', params
+        )
+
+    def get_tormur_params(self, activity_id: int) -> dict:
+        return self._get(
+            f'/api/modeling/activities/{activity_id}/tormur-params'
+        )
+
+    def tormur_check(self, params: dict) -> dict:
+        return self._post('/api/modeling/tormur/check', params)
+
+    def optimize_tormur(self, activity_id: int, params: dict,
+                         sections: list, bt_range: list = None,
+                         bb_range: list = None,
+                         smooth_window: int = 3) -> dict:
+        payload = {
+            'params': params,
+            'sections': sections,
+            'smooth_window': smooth_window,
+        }
+        if bt_range:
+            payload['bt_range'] = bt_range
+        if bb_range:
+            payload['bb_range'] = bb_range
+        return self._post(
+            f'/api/modeling/activities/{activity_id}/optimize',
+            payload, timeout=120,
+        )
+
+    def get_modeling_excel_export_url(self, activity_id: int) -> str:
+        """Return the URL for downloading the Excel export."""
+        return f'{self.base_url}/api/modeling/activities/{activity_id}/export/excel'
+
+    # ------------------------------------------------------------------
     # Plaxis Agent
     # ------------------------------------------------------------------
 

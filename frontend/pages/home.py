@@ -84,6 +84,11 @@ def _cached_geotolk_sessions(project_id: int, limit: int = 10) -> list:
     return api.get_geotolk_project_sessions(project_id, limit)
 
 
+@st.cache_data(ttl=30)
+def _cached_modeling_activities(project_id: int) -> list:
+    return api.get_modeling_activities(project_id)
+
+
 def _log_project(project_id: int, atype: str, aname: str):
     _cached_calculations.clear()
     threading.Thread(
@@ -470,7 +475,46 @@ def _tab_aktiviteter(project: dict):
                         _cached_geotolk_sessions.clear()
                         st.switch_page("pages/geotolk.py")
 
-        if not calculations and not geotolk_sessions:
+        # --- Modeling activities ---
+        modeling_activities = _cached_modeling_activities(project['id'])
+        if modeling_activities:
+            for ma in modeling_activities:
+                ma_status = ma.get('status', 'unknown')
+                ma_icon = '✅' if ma.get('has_results') else '🔄'
+                ma_name = ma.get('name', 'Modellering')
+                ma_ts = (ma.get('created_at') or '')[:10]
+                has_params = ma.get('has_tormur_params', False)
+                has_res = ma.get('has_results', False)
+
+                info_parts = []
+                if has_params:
+                    info_parts.append('parametre satt')
+                if has_res:
+                    info_parts.append('resultater')
+                info_str = ', '.join(info_parts) if info_parts else 'ny'
+
+                header = f"{ma_icon} 🏗️ {ma_name} — {info_str} ({ma_ts})"
+                with st.expander(header):
+                    st.caption(f"ID: {ma.get('id')} | Status: {ma_status}")
+
+                    if has_res:
+                        results = api.get_modeling_results(ma['id'])
+                        report = results.get('run_report', {})
+                        n_sections = len(report.get('Sections', []))
+                        all_ok = report.get('Config', {}).get('AllOk', False)
+                        vol = report.get('Config', {}).get('TotalVolume_m3')
+                        ok_icon = '✅' if all_ok else '⚠️'
+                        st.markdown(f"**{ok_icon} {n_sections} seksjoner** | "
+                                    f"Volum: {vol:.1f} m³" if vol else
+                                    f"**{ok_icon} {n_sections} seksjoner**")
+
+                    if st.button("🏗️ Åpne modellering", key=f"open_mod_{ma['id']}",
+                                 use_container_width=True):
+                        st.session_state.modeling_activity_id = ma['id']
+                        _cached_modeling_activities.clear()
+                        st.switch_page("pages/modellering.py")
+
+        if not calculations and not geotolk_sessions and not modeling_activities:
             st.info("Ingen beregninger ennå. Start en ny aktivitet til høyre!")
 
     with col2:
