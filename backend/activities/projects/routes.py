@@ -20,7 +20,10 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import or_
 
 from core.database import get_db_session
-from core.models import Project, ProjectAccess, RecentActivity
+from core.models import (
+    Project, ProjectAccess, RecentActivity,
+    PlaxisCalculation, GeoTolkSession, ModelingActivity,
+)
 
 projects_bp = Blueprint('projects', __name__, url_prefix='/api')
 
@@ -152,9 +155,23 @@ def delete_project(project_id: int):
         if username != owner:
             return jsonify({'error': 'Bare prosjektansvarlig kan slette prosjektet'}), 403
 
+        # Clear FK references in related tables (all have nullable project_id)
+        db.query(PlaxisCalculation).filter(
+            PlaxisCalculation.project_id == project_id
+        ).update({'project_id': None})
+        db.query(GeoTolkSession).filter(
+            GeoTolkSession.project_id == project_id
+        ).update({'project_id': None})
+        db.query(ModelingActivity).filter(
+            ModelingActivity.project_id == project_id
+        ).update({'project_id': None})
+
         db.delete(project)
         db.commit()
         return jsonify({'success': True, 'message': 'Project deleted.'})
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': f'Kunne ikke slette prosjektet: {exc}'}), 500
     finally:
         db.close()
 

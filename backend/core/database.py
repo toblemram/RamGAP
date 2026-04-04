@@ -95,6 +95,15 @@ def init_db() -> None:
                 ))
             print('Migration: added snd_raw_content column to geotolk_interpretations')
 
+    if 'modeling_activities' in insp.get_table_names():
+        cols = [c['name'] for c in insp.get_columns('modeling_activities')]
+        if 'tormur_params_json' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE modeling_activities ADD COLUMN tormur_params_json TEXT'
+                ))
+            print('Migration: added tormur_params_json column to modeling_activities')
+
     print(f'Main database initialized ({DATABASE_URL[:40]}...)')
 
     # --- ML database ---

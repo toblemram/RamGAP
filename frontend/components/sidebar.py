@@ -36,6 +36,7 @@ def render_sidebar(username: str, current_page: str = ""):
         nav_items = [
             ("app",              "🏠", "Prosjekter"),
             ("geogpt",           "🤖", "GeoGPT"),
+            ("gapi",             "🤖", "GAPI"),
             ("standarder",       "📚", "Standarder"),
             ("excel_ark",        "📊", "Excel-ark"),
             ("ramgap_endringer", "🔄", "Endringer og versjoner"),
@@ -47,6 +48,7 @@ def render_sidebar(username: str, current_page: str = ""):
         _page_files = {
             "app":              "pages/home.py",
             "geogpt":           "pages/geogpt.py",
+            "gapi":             "pages/plaxis_agent.py",
             "standarder":       "pages/standarder.py",
             "excel_ark":        "pages/excel_ark.py",
             "ramgap_endringer": "pages/ramgap_endringer.py",

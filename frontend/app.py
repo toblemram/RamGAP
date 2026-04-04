@@ -45,7 +45,7 @@ pg = st.navigation(
         ],
         "Ressurser": [
             st.Page("pages/geogpt.py", title="GeoGPT", icon="🤖"),
-            st.Page("pages/plaxis_agent.py", title="Plaxis Agent", icon="🤖"),
+            st.Page("pages/plaxis_agent.py", title="GAPI", icon="🤖"),
             st.Page("pages/standarder.py", title="Standarder", icon="📚"),
             st.Page("pages/excel_ark.py", title="Excel-ark", icon="📊"),
             st.Page("pages/opplaering.py", title="Opplæring", icon="🎓"),

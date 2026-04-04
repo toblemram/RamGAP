@@ -417,6 +417,9 @@ class ModelingActivity(Base):
     run_report_json = Column(Text, nullable=True)   # full run-report.json content
     run_summary_md  = Column(Text, nullable=True)   # run-summary.md content
 
+    # Tørmur V220 parameters (JSON)
+    tormur_params_json = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
@@ -431,6 +434,7 @@ class ModelingActivity(Base):
             'has_excel':      bool(self.excel_blob_name),
             'has_ifc':        bool(self.ifc_blob_name),
             'has_results':    bool(self.run_report_json),
+            'has_tormur_params': bool(self.tormur_params_json),
             'excel_filename': self.excel_filename,
             'ifc_filename':   self.ifc_filename,
             'created_at':     self.created_at.isoformat() if self.created_at else None,
