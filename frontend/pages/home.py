@@ -79,6 +79,11 @@ def _cached_project_activities(project_id: int, limit: int = 3) -> list:
     return api.get_project_activities(project_id, limit)
 
 
+@st.cache_data(ttl=30)
+def _cached_geotolk_sessions(project_id: int, limit: int = 10) -> list:
+    return api.get_geotolk_project_sessions(project_id, limit)
+
+
 def _log_project(project_id: int, atype: str, aname: str):
     _cached_calculations.clear()
     threading.Thread(
@@ -354,6 +359,8 @@ def _tab_aktiviteter(project: dict):
 
     with col1:
         st.markdown("### 📋 Beregninger")
+
+        # --- Plaxis calculations ---
         calculations = _cached_calculations(project['id'], 10)
 
         if calculations:
@@ -431,7 +438,39 @@ def _tab_aktiviteter(project: dict):
 
                     if status == 'failed':
                         st.error(f"Feil: {calc.get('error_message', 'Ukjent feil')}")
-        else:
+
+        # --- GeoTolk sessions ---
+        geotolk_sessions = _cached_geotolk_sessions(project['id'], 10)
+        if geotolk_sessions:
+            for gs in geotolk_sessions:
+                gs_status = gs.get('status', 'active')
+                gs_icon = '✅' if gs_status == 'completed' else '🔄'
+                gs_name = gs.get('activity_name', 'GeoTolk')
+                gs_ts   = (gs.get('created_at') or '')[:10]
+                gs_done = gs.get('completed_files', 0)
+                gs_total = gs.get('total_files', 0)
+                gs_user = gs.get('username', '')
+
+                interp_files = gs.get('interpreted_files', [])
+                file_names = ', '.join(f['filename'] for f in interp_files[:5])
+                if len(interp_files) > 5:
+                    file_names += f' +{len(interp_files) - 5}'
+
+                header = f"{gs_icon} 🗺️ {gs_name} — {gs_done}/{gs_total} filer ({gs_ts})"
+                with st.expander(header):
+                    st.caption(f"ID: {gs.get('id')} | Bruker: {gs_user} | Status: {gs_status}")
+                    if interp_files:
+                        st.markdown("**Tolkede filer:**")
+                        for fi in interp_files:
+                            st.caption(f"• {fi['filename']} — {fi.get('num_layers', '?')} lag")
+
+                    if st.button("🗺️ Gjenåpne tolkning", key=f"resume_gt_{gs['id']}",
+                                 use_container_width=True):
+                        st.session_state.geotolk_resume_session_id = gs['id']
+                        _cached_geotolk_sessions.clear()
+                        st.switch_page("pages/geotolk.py")
+
+        if not calculations and not geotolk_sessions:
             st.info("Ingen beregninger ennå. Start en ny aktivitet til høyre!")
 
     with col2:
