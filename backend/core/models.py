@@ -9,7 +9,7 @@ Activity-specific models can be added at the bottom of this file or
 in activities/<name>/models.py (and imported here for discovery).
 
 Usage:
-    from core.models import Base, Project, PlaxisCalculation
+    from core.models import Base, MLBase, Project, PlaxisCalculation
 """
 
 from sqlalchemy import (
@@ -19,7 +19,8 @@ from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime, timezone
 import json
 
-Base = declarative_base()
+Base   = declarative_base()   # Main DB (SQLite / app PostgreSQL)
+MLBase = declarative_base()   # ML training DB (Azure PostgreSQL)
 
 
 # ---------------------------------------------------------------------------
@@ -30,13 +31,15 @@ class Project(Base):
     """A RamGAP project that groups activities together."""
     __tablename__ = 'projects'
 
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    name        = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    created_by  = Column(String(255), nullable=False)  # Windows username
-    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    is_active   = Column(Boolean, default=True)
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(255), nullable=False)
+    description   = Column(Text, nullable=True)
+    created_by    = Column(String(255), nullable=False)  # Windows username
+    project_owner = Column(String(255), nullable=True)   # Prosjektansvarlig
+    folder_path   = Column(String(500), nullable=True)    # Lokal mappesti
+    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    is_active     = Column(Boolean, default=True)
 
     access_list = relationship(
         'ProjectAccess', back_populates='project', cascade='all, delete-orphan'
@@ -44,13 +47,15 @@ class Project(Base):
 
     def to_dict(self):
         return {
-            'id':           self.id,
-            'name':         self.name,
-            'description':  self.description,
-            'created_by':   self.created_by,
-            'created_at':   self.created_at.isoformat() if self.created_at else None,
-            'updated_at':   self.updated_at.isoformat() if self.updated_at else None,
-            'is_active':    self.is_active,
+            'id':            self.id,
+            'name':          self.name,
+            'description':   self.description,
+            'created_by':    self.created_by,
+            'project_owner': self.project_owner or self.created_by,
+            'folder_path':   self.folder_path,
+            'created_at':    self.created_at.isoformat() if self.created_at else None,
+            'updated_at':    self.updated_at.isoformat() if self.updated_at else None,
+            'is_active':     self.is_active,
             'allowed_users': [a.username for a in self.access_list] if self.access_list else [],
         }
 
@@ -235,8 +240,12 @@ class GeoTolkInterpretation(Base):
     filename  = Column(String(500), nullable=False)
     max_depth = Column(Float, nullable=True)
 
-    # JSON summary of parsed measurements (not full arrays)
+    # Full parsed measurement data (depth, c2, c3, c4 arrays + events)
+    # Cached so re-parsing is not needed when resuming a session
     parsed_data = Column(Text, nullable=True)
+
+    # Raw SND file content (stored so we never need to re-read from disk)
+    snd_raw_content = Column(Text, nullable=True)
 
     # Layer interpretation: [{"type": "leire|sand|fjell|annet", "start": 0.0, "end": 5.0}, ...]
     layers = Column(Text, nullable=True)
@@ -244,6 +253,9 @@ class GeoTolkInterpretation(Base):
     # ML prediction (same format as layers)
     ml_prediction = Column(Text, nullable=True)
     ml_confidence = Column(Float, nullable=True)
+
+    # Whether oedometer tests exist for this borehole
+    has_oedometer = Column(Boolean, default=False)
 
     # Status: 'pending' | 'interpreted' | 'verified'
     status = Column(String(50), nullable=False, default='pending')
@@ -262,13 +274,8 @@ class GeoTolkInterpretation(Base):
         return json.loads(self.layers) if self.layers else []
 
     def set_parsed_data(self, data: dict):
-        summary = {
-            'max_depth':  data.get('max_depth'),
-            'num_points': len(data.get('depth', [])),
-            'spyling':    data.get('spyling', []),
-            'slag':       data.get('slag', []),
-        }
-        self.parsed_data = json.dumps(summary)
+        """Store the full parsed data (all arrays) for caching."""
+        self.parsed_data = json.dumps(data)
 
     def get_parsed_data(self):
         return json.loads(self.parsed_data) if self.parsed_data else {}
@@ -281,11 +288,102 @@ class GeoTolkInterpretation(Base):
             'max_depth':     self.max_depth,
             'parsed_data':   self.get_parsed_data(),
             'layers':        self.get_layers(),
+            'has_oedometer': self.has_oedometer or False,
             'ml_prediction': json.loads(self.ml_prediction) if self.ml_prediction else None,
             'ml_confidence': self.ml_confidence,
             'status':        self.status,
             'created_at':    self.created_at.isoformat()     if self.created_at     else None,
             'interpreted_at': self.interpreted_at.isoformat() if self.interpreted_at else None,
+        }
+
+
+class GeoTolkMLTrainingData(MLBase):
+    """
+    Structured ML training record for soil-layer prediction.
+    One row per interpreted borehole — stores the full sounding signal
+    alongside the human-labelled layers, coordinates, and metadata.
+    Designed so an ML pipeline can query this table directly.
+    Lives in a separate ML database (Azure PostgreSQL).
+    """
+    __tablename__ = 'geotolk_ml_training'
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    # Plain integers (no FK constraint) — these reference tables in the main SQLite DB
+    interpretation_id = Column(Integer, nullable=False)
+    session_id       = Column(Integer, nullable=False)
+    project_id       = Column(Integer, nullable=True)
+
+    # Source file
+    filename  = Column(String(500), nullable=False)
+    max_depth = Column(Float, nullable=True)
+
+    # Coordinates from SND header (UTM easting/northing + elevation)
+    coord_x   = Column(Float, nullable=True)   # easting
+    coord_y   = Column(Float, nullable=True)   # northing
+    coord_z   = Column(Float, nullable=True)   # elevation (m)
+
+    # Full sounding signal as JSON arrays (for ML feature extraction)
+    # {"depth": [...], "c2": [...], "c3": [...], "c4": [...]}
+    sounding_data = Column(Text, nullable=False)
+
+    # Raw SND file content — stored line-by-line so the full original
+    # file is available for retraining or alternative parsers
+    snd_raw_content = Column(Text, nullable=True)
+
+    # SND header text (lines before data block, contains coords/method/date)
+    snd_header = Column(Text, nullable=True)
+
+    # Human-labelled layers: [{"type": "leire", "start": 0.0, "end": 5.0}, ...]
+    layers = Column(Text, nullable=False)
+    num_layers = Column(Integer, nullable=False)
+
+    # Events detected in the sounding
+    # {"spyling": [[start, end], ...], "slag": [[start, end], ...]}
+    events = Column(Text, nullable=True)
+
+    # Metadata
+    has_oedometer  = Column(Boolean, default=False)
+    interpreted_by = Column(String(255), nullable=False)
+    interpreted_at = Column(DateTime, nullable=False)
+    created_at     = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def set_sounding(self, data: dict):
+        self.sounding_data = json.dumps(data)
+
+    def get_sounding(self):
+        return json.loads(self.sounding_data) if self.sounding_data else {}
+
+    def set_layers(self, layers: list):
+        self.layers = json.dumps(layers)
+        self.num_layers = len(layers)
+
+    def get_layers(self):
+        return json.loads(self.layers) if self.layers else []
+
+    def set_events(self, events: dict):
+        self.events = json.dumps(events) if events else None
+
+    def to_dict(self):
+        return {
+            'id':               self.id,
+            'interpretation_id': self.interpretation_id,
+            'session_id':       self.session_id,
+            'project_id':       self.project_id,
+            'filename':         self.filename,
+            'max_depth':        self.max_depth,
+            'coord_x':          self.coord_x,
+            'coord_y':          self.coord_y,
+            'coord_z':          self.coord_z,
+            'sounding_data':    self.get_sounding(),
+            'layers':           self.get_layers(),
+            'num_layers':       self.num_layers,
+            'events':           json.loads(self.events) if self.events else None,
+            'snd_raw_content':  self.snd_raw_content,
+            'snd_header':       self.snd_header,
+            'has_oedometer':    self.has_oedometer or False,
+            'interpreted_by':   self.interpreted_by,
+            'interpreted_at':   self.interpreted_at.isoformat() if self.interpreted_at else None,
+            'created_at':       self.created_at.isoformat() if self.created_at else None,
         }
 
 
@@ -319,6 +417,9 @@ class ModelingActivity(Base):
     run_report_json = Column(Text, nullable=True)   # full run-report.json content
     run_summary_md  = Column(Text, nullable=True)   # run-summary.md content
 
+    # Tørmur V220 parameters (JSON)
+    tormur_params_json = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
@@ -333,6 +434,7 @@ class ModelingActivity(Base):
             'has_excel':      bool(self.excel_blob_name),
             'has_ifc':        bool(self.ifc_blob_name),
             'has_results':    bool(self.run_report_json),
+            'has_tormur_params': bool(self.tormur_params_json),
             'excel_filename': self.excel_filename,
             'ifc_filename':   self.ifc_filename,
             'created_at':     self.created_at.isoformat() if self.created_at else None,

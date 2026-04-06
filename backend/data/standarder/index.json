@@ -1,0 +1,32 @@
+[
+  {
+    "id": "2fd684fd",
+    "name": "NS-EN 1997-1_2004+a1_2013+na_2025.pdf",
+    "filename": "NS-EN 1997-1_2004+a1_2013+na_2025.pdf",
+    "uploaded_at": "2026-04-05T08:17:43.459453+00:00",
+    "section_count": 1,
+    "size_bytes": 54976717,
+    "page_count": 166,
+    "is_scanned": true
+  },
+  {
+    "id": "86ae7f92",
+    "name": "NGF melding 11 - Veiledning for prøvetaking.pdf",
+    "filename": "NGF melding 11 - Veiledning for prøvetaking.pdf",
+    "uploaded_at": "2026-04-05T08:18:32.638166+00:00",
+    "section_count": 112,
+    "size_bytes": 1732784,
+    "page_count": 30,
+    "is_scanned": false
+  },
+  {
+    "id": "d62fdf1e",
+    "name": "V221 - Grunnforsterkning fyllinger og skråninger.pdf",
+    "filename": "V221 - Grunnforsterkning fyllinger og skråninger.pdf",
+    "uploaded_at": "2026-04-05T08:19:24.936360+00:00",
+    "section_count": 1107,
+    "size_bytes": 14913163,
+    "page_count": 353,
+    "is_scanned": false
+  }
+]

@@ -5,6 +5,25 @@ import streamlit as st
 from components.auth import require_username
 from components.api_client import APIClient
 
+
+def _pick_folder(initial_dir: str = "") -> str:
+    """Open a native Windows folder-picker dialog and return the chosen path."""
+    import os
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    root.wm_attributes("-topmost", 1)
+    kwargs = {}
+    if initial_dir and os.path.isdir(initial_dir):
+        kwargs["initialdir"] = initial_dir
+    folder = filedialog.askdirectory(**kwargs)
+    root.destroy()
+    if folder:
+        return os.path.normpath(folder)
+    return ""
+
+
 USERNAME = require_username()
 api = APIClient()
 
@@ -18,6 +37,29 @@ st.subheader("⚙️ Prosjekt innstillinger")
 st.markdown("---")
 
 st.markdown("### Opprett nytt prosjekt")
+
+# Session state for folder picker (outside form)
+if "new_project_folder" not in st.session_state:
+    st.session_state.new_project_folder = ""
+
+# Handle pending browse result before widget renders
+if st.session_state.get("_browse_new_pending"):
+    st.session_state.new_project_folder = st.session_state.pop("_browse_new_pending")
+
+col_folder, col_browse = st.columns([4, 1])
+with col_folder:
+    folder_display = st.text_input(
+        "Prosjektmappe",
+        key="new_project_folder",
+        help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn",
+    )
+with col_browse:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("📂 Bla gjennom…", key="browse_new_folder", use_container_width=True):
+        chosen = _pick_folder(st.session_state.new_project_folder)
+        if chosen:
+            st.session_state["_browse_new_pending"] = chosen
+            st.rerun()
 
 with st.form("create_project_form"):
     project_name = st.text_input("Prosjektnavn *")
@@ -33,8 +75,9 @@ with st.form("create_project_form"):
             st.error("Prosjektnavn er påkrevd")
         else:
             allowed_users = [u.strip() for u in allowed_users_input.split(",") if u.strip()]
+            project_folder = st.session_state.new_project_folder
 
-            result = api.create_project(project_name, project_description, USERNAME, allowed_users)
+            result = api.create_project(project_name, project_description, USERNAME, allowed_users, project_folder)
 
             if result.get("id") or result.get("project"):
                 st.success(f"✅ Prosjekt '{project_name}' opprettet!")
@@ -49,8 +92,13 @@ st.markdown("### Dine prosjekter")
 projects = _cached_projects(USERNAME)
 if projects:
     for project in projects:
+        pid = project['id']
+        is_owner = (project.get('project_owner') or project.get('created_by', '')) == USERNAME or project.get('created_by') == USERNAME
+
         with st.expander(f"📁 {project['name']}", expanded=False):
             st.write(f"**Beskrivelse:** {project.get('description') or 'Ingen beskrivelse'}")
+            st.write(f"**Prosjektmappe:** {project.get('folder_path') or 'Ikke satt'}")
+            st.write(f"**Prosjektansvarlig:** {project.get('project_owner') or project.get('created_by')}")
             st.write(f"**Opprettet av:** {project.get('created_by')}")
             st.write(
                 f"**Opprettet:** {project.get('created_at', '')[:10] if project.get('created_at') else 'Ukjent'}"
@@ -58,5 +106,142 @@ if projects:
             allowed = project.get("allowed_users", [])
             if allowed:
                 st.write(f"**Brukere med tilgang:** {', '.join(allowed)}")
+
+            if not is_owner:
+                st.caption("Bare prosjektansvarlig kan redigere prosjektet.")
+                continue
+
+            # ── Rediger prosjekt ──────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### ✏️ Rediger prosjekt")
+
+            # Navn
+            new_name = st.text_input(
+                "Prosjektnavn",
+                value=project['name'],
+                key=f"edit_name_{pid}",
+            )
+
+            # Beskrivelse
+            new_desc = st.text_area(
+                "Beskrivelse",
+                value=project.get('description') or '',
+                key=f"edit_desc_{pid}",
+            )
+
+            # Prosjektansvarlig
+            new_owner = st.text_input(
+                "Prosjektansvarlig",
+                value=project.get('project_owner') or project.get('created_by', ''),
+                key=f"edit_owner_{pid}",
+            )
+
+            # Prosjektmappe med folder-picker
+            folder_key = f"edit_folder_{pid}"
+            pending_key = f"_browse_edit_pending_{pid}"
+            if folder_key not in st.session_state:
+                st.session_state[folder_key] = project.get('folder_path') or ''
+            if st.session_state.get(pending_key):
+                st.session_state[folder_key] = st.session_state.pop(pending_key)
+            fc, bc = st.columns([4, 1])
+            with fc:
+                new_folder = st.text_input(
+                    "Prosjektmappe",
+                    key=folder_key,
+                )
+            with bc:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("📂", key=f"browse_folder_{pid}", use_container_width=True):
+                    chosen = _pick_folder(st.session_state.get(folder_key, ''))
+                    if chosen:
+                        st.session_state[pending_key] = chosen
+                        st.rerun()
+
+            if st.button("💾 Lagre endringer", key=f"save_project_{pid}", type="primary"):
+                updates = {}
+                if new_name != project['name']:
+                    updates['name'] = new_name
+                if new_desc != (project.get('description') or ''):
+                    updates['description'] = new_desc
+                if new_owner != (project.get('project_owner') or project.get('created_by', '')):
+                    updates['project_owner'] = new_owner
+                if new_folder != (project.get('folder_path') or ''):
+                    updates['folder_path'] = new_folder
+                if updates:
+                    res = api.update_project(pid, USERNAME, **updates)
+                    if res.get('success'):
+                        st.success("Prosjekt oppdatert!")
+                        _cached_projects.clear()
+                        st.rerun()
+                    else:
+                        st.error(res.get('error', 'Kunne ikke oppdatere'))
+                else:
+                    st.info("Ingen endringer å lagre.")
+
+            # ── Administrer brukere ───────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 👥 Brukertilgang")
+
+            # Legg til bruker
+            ac1, ac2 = st.columns([3, 1])
+            with ac1:
+                new_user = st.text_input(
+                    "Legg til bruker (brukernavn)",
+                    key=f"add_user_{pid}",
+                    placeholder="f.eks. ola.nordmann",
+                )
+            with ac2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("➕ Legg til", key=f"btn_add_user_{pid}", use_container_width=True):
+                    if new_user.strip():
+                        res = api.add_project_access(pid, new_user.strip(), USERNAME)
+                        if res.get('success') or res.get('message'):
+                            st.success(f"Tilgang gitt til {new_user.strip()}")
+                            _cached_projects.clear()
+                            st.rerun()
+                        else:
+                            st.error(res.get('error', 'Kunne ikke legge til bruker'))
+                    else:
+                        st.warning("Skriv inn et brukernavn.")
+
+            # Fjern brukere
+            current_users = project.get('allowed_users', [])
+            if current_users:
+                user_to_remove = st.selectbox(
+                    "Fjern bruker",
+                    options=current_users,
+                    key=f"remove_user_select_{pid}",
+                )
+                if st.button("🗑️ Fjern valgt bruker", key=f"btn_remove_user_{pid}"):
+                    res = api.remove_project_access(pid, user_to_remove, USERNAME)
+                    if res.get('success'):
+                        st.success(f"Tilgang fjernet for {user_to_remove}")
+                        _cached_projects.clear()
+                        st.rerun()
+                    else:
+                        st.error(res.get('error', 'Kunne ikke fjerne bruker'))
+
+            # ── Slett prosjekt ────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 🗑️ Slett prosjekt")
+            st.warning(
+                f'For å slette **{project["name"]}**, skriv "slett" i feltet under og trykk knappen.'
+            )
+            confirm_text = st.text_input(
+                "Bekreft sletting",
+                key=f"delete_confirm_{pid}",
+                placeholder='Skriv "slett" for å bekrefte',
+            )
+            if st.button("🗑️ Slett prosjekt permanent", key=f"btn_delete_{pid}", type="secondary"):
+                if confirm_text.strip().lower() == "slett":
+                    res = api.delete_project(pid, USERNAME, "SLETT")
+                    if res.get('success'):
+                        st.success(f"Prosjekt '{project['name']}' er slettet.")
+                        _cached_projects.clear()
+                        st.rerun()
+                    else:
+                        st.error(res.get('error', 'Kunne ikke slette prosjektet'))
+                else:
+                    st.error('Du må skrive "slett" for å bekrefte sletting.')
 else:
     st.info("Ingen prosjekter ennå. Opprett ditt første prosjekt ovenfor!")

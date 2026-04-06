@@ -2,54 +2,59 @@
 """
 Database Connection
 ===================
-Provides the SQLAlchemy engine, session factory, and helper functions
-for creating and accessing the database.
+Dual-database setup:
+  - **Main DB** (Azure PostgreSQL via DATABASE_URL):
+    Projects, activity logs, GeoTolk sessions/interpretations, Plaxis calculations.
+  - **ML DB** (Azure PostgreSQL via ML_DATABASE_URL):
+    Dedicated ML training data (GeoTolkMLTrainingData) for model training.
 
 Usage:
-    from core.database import init_db, get_db_session
+    from core.database import init_db, get_db_session, get_ml_session
 
     init_db()
-    db = get_db_session()
-    try:
-        # ... queries ...
-    finally:
-        db.close()
+    db = get_db_session()        # main app data
+    ml = get_ml_session()        # ML training data only
 """
 
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
-from core.models import Base
+from core.models import Base, MLBase
 
 load_dotenv(override=True)
 
 # ---------------------------------------------------------------------------
-# Database URL
+# Main database (projects, sessions, logs, interpretations) — Azure PostgreSQL
 # ---------------------------------------------------------------------------
-# Local development: SQLite file next to backend/
-_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DB_PATH     = os.path.join(_BACKEND_DIR, 'ramgap.db')
+DATABASE_URL: str = os.environ['DATABASE_URL']
 
-DATABASE_URL: str = os.getenv('DATABASE_URL', f'sqlite:///{_DB_PATH}')
-
-# For Azure PostgreSQL Flexible Server, set DATABASE_URL to:
-#   postgresql://adminuser:Password@server.postgres.database.azure.com:5432/ramgap?sslmode=require
-
-# ---------------------------------------------------------------------------
-# Engine & session factory
-# ---------------------------------------------------------------------------
-_is_sqlite = DATABASE_URL.startswith('sqlite')
-_connect_args = {'check_same_thread': False} if _is_sqlite else {'connect_timeout': 5}
-_engine_kwargs: dict = {'connect_args': _connect_args, 'echo': False}
-if not _is_sqlite:
-    # Connection pool settings for shared cloud database
-    _engine_kwargs.update({'pool_size': 5, 'max_overflow': 10, 'pool_pre_ping': True})
-
-engine = create_engine(DATABASE_URL, **_engine_kwargs)
-
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={'connect_timeout': 5},
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    echo=False,
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Session      = scoped_session(SessionLocal)
+
+# ---------------------------------------------------------------------------
+# ML training database (Azure PostgreSQL — dedicated for ML data)
+# ---------------------------------------------------------------------------
+ML_DATABASE_URL: str = os.environ['ML_DATABASE_URL']
+
+ml_engine = create_engine(
+    ML_DATABASE_URL,
+    connect_args={'connect_timeout': 10},
+    pool_size=3,
+    max_overflow=5,
+    pool_pre_ping=True,
+    echo=False,
+)
+MLSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=ml_engine)
+MLSession      = scoped_session(MLSessionLocal)
 
 
 # ---------------------------------------------------------------------------
@@ -57,14 +62,64 @@ Session      = scoped_session(SessionLocal)
 # ---------------------------------------------------------------------------
 
 def init_db() -> None:
-    """Create all tables if they do not exist yet."""
+    """Create all tables in both main and ML databases."""
+    from sqlalchemy import inspect as sa_inspect, text
+
+    # --- Main database ---
     Base.metadata.create_all(bind=engine)
-    print('Database initialized successfully')
+
+    insp = sa_inspect(engine)
+    if 'projects' in insp.get_table_names():
+        cols = [c['name'] for c in insp.get_columns('projects')]
+        if 'project_owner' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE projects ADD COLUMN project_owner VARCHAR(255)'))
+            print('Migration: added project_owner column to projects')
+        if 'folder_path' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text('ALTER TABLE projects ADD COLUMN folder_path VARCHAR(500)'))
+            print('Migration: added folder_path column to projects')
+
+    if 'geotolk_interpretations' in insp.get_table_names():
+        cols = [c['name'] for c in insp.get_columns('geotolk_interpretations')]
+        if 'has_oedometer' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE geotolk_interpretations ADD COLUMN has_oedometer BOOLEAN DEFAULT FALSE'
+                ))
+            print('Migration: added has_oedometer column to geotolk_interpretations')
+        if 'snd_raw_content' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE geotolk_interpretations ADD COLUMN snd_raw_content TEXT'
+                ))
+            print('Migration: added snd_raw_content column to geotolk_interpretations')
+
+    if 'modeling_activities' in insp.get_table_names():
+        cols = [c['name'] for c in insp.get_columns('modeling_activities')]
+        if 'tormur_params_json' not in cols:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    'ALTER TABLE modeling_activities ADD COLUMN tormur_params_json TEXT'
+                ))
+            print('Migration: added tormur_params_json column to modeling_activities')
+
+    print(f'Main database initialized ({DATABASE_URL[:40]}...)')
+
+    # --- ML database ---
+    MLBase.metadata.create_all(bind=ml_engine)
+    print(f'ML database initialized ({ML_DATABASE_URL[:40]}...)')
 
 
 def get_db_session():
-    """Return a new database session. Caller is responsible for closing it."""
+    """Return a main database session. Caller is responsible for closing it."""
     return Session()
+
+
+def get_ml_session():
+    """Return an ML database session."""
+    return MLSession()
+
 
 
 def close_db_session(db) -> None:

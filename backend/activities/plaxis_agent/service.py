@@ -1,0 +1,711 @@
+# -*- coding: utf-8 -*-
+"""
+Plaxis Agent Service
+=====================
+Orchestrates:
+  1.  Knowledge retrieval (hybrid search over Plaxis API docs + optional PDF)
+  2.  LLM code generation via Azure OpenAI (Azure AI Foundry deployment)
+  3.  Safe execution of generated code against a live Plaxis session
+  4.  Automatic retry with error feedback when execution fails
+
+The service is stateless per call — conversation history is passed in from the
+frontend via the messages list.
+"""
+
+import re
+import textwrap
+from typing import Any, Dict, List, Optional
+
+from openai import AzureOpenAI
+
+from config import (
+    AZURE_OPENAI_API_KEY,
+    AZURE_OPENAI_DEPLOYMENT,
+    AZURE_OPENAI_ENDPOINT,
+    AZURE_OPENAI_API_VERSION,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+)
+from activities.plaxis_agent.knowledge import (
+    build_api_cards,
+    extract_pdf_text,
+    retrieve_docs,
+)
+
+# ---------------------------------------------------------------------------
+# System prompt — instructs the LLM how to behave
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT = textwrap.dedent("""\
+    Du er en PLAXIS-ekspert og kodegenerator innebygd i RamGAP.  Du tenker GRUNDIG
+    og NØYAKTIG — du henter ALLTID mer data enn brukeren eksplisitt ber om, fordi
+    kontekst er viktig for å ta gode beslutninger.
+
+    VIKTIGST — FLERSTEGS-TENKNING:
+    Komplekse oppgaver (optimalisering, analyse, endringer) krever FLERE STEG.
+    Du skal ALLTID starte med å hente data FØR du analyserer / endrer noe.
+    Etter hvert kodesteg vil du se resultatene.  Basert på resultatene bestemmer
+    du hva neste steg skal være.
+
+    Når du er ferdig med siste steg, skriv «FERDIG» som siste linje i koden
+    (som kommentar: # FERDIG).
+
+    Dersom du trenger MER informasjon fra brukeren for å fortsette, print en
+    linje som starter med «SPØRSMÅL:» fulgt av spørsmålet ditt.  Da vil
+    systemet vise spørsmålet til brukeren og vente på svar.
+    Eksempel:
+        print("SPØRSMÅL: Hvilken fase skal optimaliseres?  Velg fra listen ovenfor.")
+
+    Dersom koden din kjørte men ga TOMME eller MANGLENDE data, prøv en ANNEN
+    tilnærming i neste steg.  Ikke gi opp — utforsk andre attributter, metoder
+    eller samlinger.
+
+    TENKEPROSESS:
+    • Tenk først over HVA brukeren egentlig trenger, ikke bare hva de bokstavelig spør om.
+    • Dersom brukeren spør om f.eks. «plater», hent også materialegenskaper, tilkoblinger,
+      og faseresultater for platene — ikke bare navnene.
+    • Dersom brukeren spør om «materialer», vis også ALLE egenskaper/parametere per material,
+      ikke bare navn og type.
+    • Vær ALLTID grundig: vis verdi, enhet, og kontekst for hvert element.
+
+    REGLER:
+    • Returner ALLTID KUN ren Python-kode som kan kjøres med variablene `g` (PLAXIS global)
+      og `s` (server-objekt fra plxscripting).
+    • INGEN markdown, INGEN ```-blokker, INGEN forklarende tekst, INGEN import-setninger.
+    • ALDRI kall `g.new()` — operer på det eksisterende prosjektet i `g`.
+    • ALDRI kall `new_server()` — tilkoblingen er allerede opprettet.
+    • Bruk variablene `g` og `s` (IKKE `g_i`/`s_i`) med mindre brukeren ber om output.
+      For output-operasjoner, bruk `g_o` og `s_o` som allerede er tilgjengelige.
+    • Følg signaturene og eksemplene i API-kortene som er oppgitt nedenfor.
+    • Skriv grundig, deterministisk kode.  Inkluder `print()` for ALT brukeren trenger.
+    • Dersom brukeren ber om å «hente» / «extrahere» / «liste» data, skriv kode som samler
+      resultatene i en variabel og `print()`-er dem MED ALLE detaljer.
+    • Dersom brukeren ber om å «lage» / «opprette» / «endre», skriv kode som utfører
+      handlingen direkte på modellen via g / s.
+
+    VIKTIG — OUTPUT-FORMAT:
+    Hver logisk gruppe med data skal ha en overskrift på formen:
+        print("=== SEKSJONSNAVN ===")
+    Hvert element i en gruppe skal være på én linje med format:
+        print("ITEM: verdi1 | verdi2 | verdi3")
+    Slik at resultater kan parses strukturert.
+
+    VIKTIG — PLAXIS PYTHON SCRIPTING-MØNSTRE:
+    KRITISK: Ikke alle Plaxis-prosjekter har alle objekttyper.  Noen samlinger
+    (f.eks. g.Boreholes, g.Geogrids) finnes IKKE i alle modeller.
+    Du MÅ ALLTID pakke inn hver seksjon i try/except slik at koden fortsetter
+    selv om en samling mangler.
+
+    Bruk ALLTID iterasjon over samlinger (g.Plates, g.Phases, g.Materials osv.)
+    for å hente faktisk data — g.info() gir bare en metadataoversikt og er ALDRI nok.
+
+    VIKTIG — GEOMETRI & RESULTATER:
+    For plater: bruk attributter som plate.Parent.x, plate.Parent.y, etc.
+    Prøv ALLTID å hente geometri via flere tilnærminger:
+      1) plate.Parent.Points[0].x, plate.Parent.Points[1].x
+      2) g.tabulate(plate, "x y")
+      3) g_o.getresults(plate, phase, g_o.ResultTypes.Plate.X)
+    Dersom en tilnærming gir tomme resultater, prøv næste.
+
+    For resultater (krefter/momenter), sjekk ALLTID at beregningen er kjørt:
+      - Sjekk phase.ShouldCalculate, phase.Identification
+      - Bruk g_o/s_o for output-resultater (IKKE g/s)
+""")
+
+# ---------------------------------------------------------------------------
+# LLM client helpers
+# ---------------------------------------------------------------------------
+
+_client = None
+
+
+def _get_client():
+    """Return an Azure OpenAI client (preferred) or fall back to plain OpenAI."""
+    global _client
+    if _client is not None:
+        return _client, AZURE_OPENAI_DEPLOYMENT or OPENAI_MODEL
+
+    if AZURE_OPENAI_API_KEY and AZURE_OPENAI_ENDPOINT:
+        _client = AzureOpenAI(
+            api_key=AZURE_OPENAI_API_KEY,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            api_version=AZURE_OPENAI_API_VERSION,
+        )
+        return _client, AZURE_OPENAI_DEPLOYMENT
+    elif OPENAI_API_KEY:
+        from openai import OpenAI
+        _client = OpenAI(api_key=OPENAI_API_KEY)
+        return _client, OPENAI_MODEL
+    else:
+        raise RuntimeError(
+            "Ingen AI-nøkkel konfigurert.  Sett AZURE_OPENAI_API_KEY + AZURE_OPENAI_ENDPOINT "
+            "eller OPENAI_API_KEY i .env."
+        )
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove markdown code fences if the LLM accidentally included them."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:python)?\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text)
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def generate_code(
+    user_message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    pdf_text: Optional[str] = None,
+    selected_context: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Generate Plaxis Python code for *user_message*.
+
+    Args:
+        user_message:     The natural-language request from the user.
+        history:          Previous conversation turns ``[{"role": …, "content": …}, …]``.
+        pdf_text:         Extracted text from an uploaded PDF to include as context.
+        selected_context: Items the user selected from the findings panel to
+                          include as extra context in the prompt.
+
+    Returns:
+        ``{"code": str, "api_cards": str, "docs_used": list[str]}``
+    """
+    docs = retrieve_docs(user_message, k=4)
+    api_cards = build_api_cards(docs)
+    docs_used = [d.get("name", "") for d in docs]
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
+
+    if api_cards:
+        messages.append({"role": "system", "content": f"API-kort (referanse):\n{api_cards}"})
+
+    if selected_context:
+        ctx_text = "\n".join(f"• {item}" for item in selected_context)
+        messages.append({
+            "role": "system",
+            "content": (
+                "Brukeren har valgt følgende elementer fra tidligere resultater "
+                "som kontekst. Bruk disse aktivt i svaret ditt:\n" + ctx_text
+            ),
+        })
+
+    if pdf_text:
+        # Truncate to avoid token overflow
+        truncated = pdf_text[:8000]
+        messages.append({
+            "role": "system",
+            "content": f"Innhold fra brukerens opplastede dokument:\n{truncated}",
+        })
+
+    # Append conversation history
+    if history:
+        messages.extend(history)
+
+    messages.append({"role": "user", "content": user_message})
+
+    client, model = _get_client()
+    resp = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_completion_tokens=4096,
+    )
+
+    code = _strip_code_fences(resp.choices[0].message.content or "")
+    return {"code": code, "api_cards": api_cards, "docs_used": docs_used}
+
+
+def generate_code_with_retry(
+    user_message: str,
+    history: Optional[List[Dict[str, str]]] = None,
+    pdf_text: Optional[str] = None,
+    selected_context: Optional[List[str]] = None,
+    error_message: Optional[str] = None,
+    failed_code: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Retry code generation after a previous execution failure.
+
+    Appends the failed code and error message to the conversation so the LLM
+    can self-correct.
+    """
+    retry_history = list(history or [])
+    if failed_code:
+        retry_history.append({"role": "assistant", "content": failed_code})
+    if error_message:
+        retry_history.append({
+            "role": "user",
+            "content": (
+                f"Koden over feilet med denne meldingen:\n{error_message}\n\n"
+                "Rett opp og gi ny KUN-kode basert på API-kortene og reglene."
+            ),
+        })
+    return generate_code(
+        user_message, history=retry_history, pdf_text=pdf_text,
+        selected_context=selected_context,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Safe Plaxis code execution
+# ---------------------------------------------------------------------------
+
+# Safety: do not allow dangerous patterns
+_BLOCKED_PATTERNS = [
+    re.compile(r"\bg\.new\s*\("),        # creating new project
+    re.compile(r"\bnew_server\s*\("),     # opening new connection
+    re.compile(r"\bimport\s+os\b"),       # filesystem access
+    re.compile(r"\bimport\s+subprocess"), # shell access
+    re.compile(r"\bopen\s*\("),           # file I/O
+    re.compile(r"\b__import__\s*\("),     # dynamic imports
+    re.compile(r"\beval\s*\("),           # eval
+    re.compile(r"\bexec\s*\("),           # nested exec
+]
+
+
+def execute_code(code: str, plaxis_globals: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute generated code in a restricted namespace containing only the
+    Plaxis session objects (g, s, g_o, s_o).
+
+    Returns ``{"success": bool, "output": str, "error": str | None}``.
+    """
+    if not code or not code.strip():
+        return {"success": False, "output": "", "error": "Ingen kode å kjøre."}
+
+    # Safety check
+    for pat in _BLOCKED_PATTERNS:
+        if pat.search(code):
+            return {
+                "success": False,
+                "output": "",
+                "error": f"Blokkert: koden inneholder et forbudt mønster ({pat.pattern}).",
+            }
+
+    # Capture print output
+    import io
+    import contextlib
+
+    buf = io.StringIO()
+    namespace = dict(plaxis_globals)  # shallow copy
+    try:
+        with contextlib.redirect_stdout(buf):
+            exec(code, namespace)  # noqa: S102  — controlled exec
+        return {"success": True, "output": buf.getvalue(), "error": None}
+    except Exception as exc:
+        return {"success": False, "output": buf.getvalue(), "error": str(exc)}
+
+
+def _analyze_output(output: str) -> Dict[str, Any]:
+    """
+    Analyze execution output to decide if the agent should continue.
+
+    Returns:
+        {
+            "has_data": bool,          # True if meaningful data was found
+            "has_question": bool,      # True if the agent asks the user something
+            "question": str | None,    # The question text if any
+            "is_done": bool,           # True if '# FERDIG' marker found
+            "empty_sections": list,    # Section names with no items
+            "data_sections": list,     # Section names with items
+        }
+    """
+    lines = output.splitlines()
+    empty_sections = []
+    data_sections = []
+    current_section = None
+    current_has_items = False
+    has_question = False
+    question = None
+    is_done = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Check for question
+        if stripped.startswith("SPØRSMÅL:"):
+            has_question = True
+            question = stripped[len("SPØRSMÅL:"):].strip()
+
+        # Check for done marker
+        if "# FERDIG" in stripped or stripped == "FERDIG":
+            is_done = True
+
+        # Parse sections
+        sec_match = re.match(r'^===\s*(.+?)\s*===$', stripped)
+        if sec_match:
+            if current_section is not None:
+                if current_has_items:
+                    data_sections.append(current_section)
+                else:
+                    empty_sections.append(current_section)
+            current_section = sec_match.group(1)
+            current_has_items = False
+        elif current_section and stripped.startswith("ITEM:"):
+            current_has_items = True
+
+    # Last section
+    if current_section is not None:
+        if current_has_items:
+            data_sections.append(current_section)
+        else:
+            empty_sections.append(current_section)
+
+    has_data = len(data_sections) > 0
+
+    return {
+        "has_data": has_data,
+        "has_question": has_question,
+        "question": question,
+        "is_done": is_done,
+        "empty_sections": empty_sections,
+        "data_sections": data_sections,
+    }
+
+
+def _generate_next_step(
+    user_message: str,
+    step_history: List[Dict[str, str]],
+    analysis: Dict[str, Any],
+    step_num: int,
+    pdf_text: Optional[str] = None,
+    selected_context: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Generate code for the next step based on previous step results.
+    """
+    # Build continuation prompt
+    if analysis["has_question"]:
+        # Agent asked the user something — we stop and ask
+        return {"code": "", "stop_reason": "question", "question": analysis["question"]}
+
+    continuation = []
+    if not analysis["has_data"] and analysis["empty_sections"]:
+        continuation.append(
+            f"Steg {step_num - 1} ga TOMME seksjoner: {', '.join(analysis['empty_sections'])}. "
+            "Dataene var tomme.  Prøv en ANNEN tilnærming for å hente disse dataene. "
+            "Utforsk andre attributter eller metoder.  Ikke gi opp — prøv alternative "
+            "Plaxis API-kall."
+        )
+    elif analysis["has_data"] and not analysis["is_done"]:
+        continuation.append(
+            f"Steg {step_num - 1} hentet data i: {', '.join(analysis['data_sections'])}. "
+            "Nå har du fakta fra modellen.  Basert på disse resultatene, "
+            "utfør NESTE logiske steg for å fullføre brukerens forespørsel. "
+            "Dersom brukeren ba om optimalisering/analyse: analyser dataene, "
+            "beregn nøkkelverdier, og gi en KONKRET anbefaling med begrunnelse. "
+            "Dersom du trenger resultater fra output (krefter, momenter), bruk g_o/s_o. "
+            "Skriv '# FERDIG' som siste kommentar når du er ferdig."
+        )
+
+    if continuation:
+        step_history.append({
+            "role": "user",
+            "content": "\n".join(continuation),
+        })
+
+    return generate_code(
+        user_message=user_message,
+        history=step_history,
+        pdf_text=pdf_text,
+        selected_context=selected_context,
+    )
+
+
+def chat_and_execute(
+    user_message: str,
+    plaxis_globals: Dict[str, Any],
+    history: Optional[List[Dict[str, str]]] = None,
+    pdf_text: Optional[str] = None,
+    selected_context: Optional[List[str]] = None,
+    max_retries: int = 2,
+    max_steps: int = 5,
+) -> Dict[str, Any]:
+    """
+    Multi-step agent loop:
+      1. Generate code for current step
+      2. Execute it
+      3. If execution fails → retry with error feedback (up to max_retries)
+      4. If execution succeeds → analyze output
+         - If output has empty sections or more work needed → generate next step
+         - If agent asks a question → stop and relay to user
+         - If '# FERDIG' marker or max_steps reached → return final result
+      5. Accumulate all output across steps
+
+    Returns::
+
+        {
+            "code":       <final code string>,
+            "output":     <accumulated stdout from all steps>,
+            "success":    <bool>,
+            "error":      <error string or None>,
+            "attempts":   <total attempts across all steps>,
+            "steps":      <number of steps executed>,
+            "docs_used":  <list of doc names>,
+            "question":   <str or None — if agent asks the user>,
+            "thinking":   <list of thinking-log entries>,
+        }
+    """
+    all_output_parts = []
+    all_code_parts = []
+    all_docs_used = []
+    thinking_log: List[Dict[str, str]] = []   # [{step, action, detail}, …]
+    total_attempts = 0
+    step_history = list(history or [])
+
+    def _log(step_n: int, action: str, detail: str):
+        thinking_log.append({"step": step_n, "action": action, "detail": detail})
+
+    def _make_result(**overrides) -> Dict[str, Any]:
+        base = {
+            "code": "\n\n".join(all_code_parts),
+            "output": "\n".join(all_output_parts),
+            "success": True,
+            "error": None,
+            "attempts": total_attempts,
+            "steps": 0,
+            "docs_used": list(dict.fromkeys(all_docs_used)),
+            "thinking": thinking_log,
+        }
+        base.update(overrides)
+        return base
+
+    for step in range(1, max_steps + 1):
+        # --- Generate code for this step ---
+        if step == 1:
+            _log(step, "🔍 Analyserer forespørsel",
+                 f"Brukerens melding: «{user_message[:120]}»")
+            _log(step, "📚 Henter dokumentasjon",
+                 "Søker i Plaxis API-indeksen etter relevante kommandoer…")
+            gen_result = generate_code(
+                user_message, history=step_history, pdf_text=pdf_text,
+                selected_context=selected_context,
+            )
+            docs_names = [d for d in gen_result.get("docs_used", []) if d]
+            if docs_names:
+                _log(step, "📖 Fant dokumenter",
+                     ", ".join(docs_names))
+            _log(step, "🧠 Genererer kode",
+                 f"LLM genererer Python-kode for steg {step}…")
+        else:
+            _log(step, "🤔 Vurderer resultater",
+                 f"Analyserer output fra steg {step - 1}: "
+                 f"{len(analysis.get('data_sections', []))} seksjoner med data, "
+                 f"{len(analysis.get('empty_sections', []))} tomme seksjoner")
+            gen_result = _generate_next_step(
+                user_message=user_message,
+                step_history=step_history,
+                analysis=analysis,
+                step_num=step,
+                pdf_text=pdf_text,
+                selected_context=selected_context,
+            )
+            # Check if the generator said to stop (question)
+            if gen_result.get("stop_reason") == "question":
+                _log(step, "❓ Trenger svar fra bruker",
+                     gen_result.get("question", ""))
+                return _make_result(
+                    steps=step - 1,
+                    question=gen_result.get("question"),
+                )
+            _log(step, "🧠 Genererer kode",
+                 f"LLM genererer Python-kode for steg {step}…")
+
+        code = gen_result["code"]
+        all_docs_used.extend(gen_result.get("docs_used", []))
+
+        # --- Execute with retries ---
+        exec_result = None
+        for attempt in range(1, max_retries + 2):
+            total_attempts += 1
+            _log(step, "▶️ Kjører kode",
+                 f"Forsøk {attempt} — kjører {len(code.splitlines())} linjer mot PLAXIS…")
+            exec_result = execute_code(code, plaxis_globals)
+
+            if exec_result["success"]:
+                output_lines = len(exec_result.get("output", "").splitlines())
+                _log(step, "✅ Kode kjørt OK",
+                     f"Fikk {output_lines} linjer output")
+                break
+
+            _log(step, "❌ Feil ved kjøring",
+                 exec_result.get("error", "ukjent feil")[:200])
+
+            if attempt > max_retries:
+                break
+
+            _log(step, "🔄 Prøver på nytt",
+                 "Sender feilmelding til LLM for ny kode…")
+            retry = generate_code_with_retry(
+                user_message,
+                history=step_history,
+                pdf_text=pdf_text,
+                selected_context=selected_context,
+                error_message=exec_result["error"],
+                failed_code=code,
+            )
+            code = retry["code"]
+
+        # If execution failed after all retries, return what we have
+        if not exec_result["success"]:
+            all_code_parts.append(code)
+            all_output_parts.append(exec_result.get("output", ""))
+            _log(step, "⛔ Ga opp etter retries",
+                 f"Mislyktes etter {total_attempts} forsøk")
+            return _make_result(
+                success=False, error=exec_result["error"], steps=step,
+            )
+
+        # --- Execution succeeded — analyze output ---
+        step_output = exec_result["output"]
+        all_code_parts.append(code)
+        all_output_parts.append(step_output)
+
+        # Add to step history so the LLM sees what happened
+        step_history.append({"role": "assistant", "content": code})
+        step_history.append({
+            "role": "user",
+            "content": f"Koden ble kjørt.  Output fra steg {step}:\n{step_output[:4000]}",
+        })
+
+        analysis = _analyze_output(step_output)
+
+        # Check if agent asked the user a question
+        if analysis["has_question"]:
+            _log(step, "❓ Trenger svar fra bruker", analysis["question"])
+            return _make_result(
+                steps=step,
+                question=analysis["question"],
+            )
+
+        # Check if agent signalled it's done
+        if analysis["is_done"]:
+            _log(step, "🏁 Ferdig", "Agenten signaliserte at oppgaven er fullført")
+            break
+
+        # Decide whether to continue to next step
+        if step == 1 and analysis["has_data"]:
+            _complex_kw = re.compile(
+                r"optim|analys|endre|flytt|beregn|dimesjon|evaluer|vurder|"
+                r"forbedre|reduser|sammenlign|finn.*beste|finn.*optimal",
+                re.IGNORECASE,
+            )
+            if _complex_kw.search(user_message):
+                _log(step, "🔄 Fortsetter",
+                     "Kompleks forespørsel — trenger flere steg for analyse/optimalisering")
+                continue
+            else:
+                _log(step, "🏁 Ferdig",
+                     "Enkel forespørsel — data hentet, ingen videre steg nødvendig")
+                break
+
+        # Later steps: stop if we got data with no empties
+        if analysis["has_data"] and not analysis["empty_sections"]:
+            _log(step, "🏁 Ferdig",
+                 f"Alle seksjoner har data: {', '.join(analysis['data_sections'])}")
+            break
+        elif analysis["empty_sections"]:
+            _log(step, "🔄 Fortsetter",
+                 f"Tomme seksjoner: {', '.join(analysis['empty_sections'])} — prøver på nytt")
+
+    # --- Cleanup step: reformat accumulated output ---
+    raw_output = "\n".join(all_output_parts)
+    if raw_output.strip():
+        _log(step + 1, "🧹 Rydder opp",
+             "Sender all output til LLM for opprydding og formatering…")
+        try:
+            cleanup_code = _generate_cleanup(raw_output, user_message)
+            if cleanup_code:
+                total_attempts += 1
+                cleanup_result = execute_code(cleanup_code, plaxis_globals)
+                if cleanup_result["success"] and cleanup_result["output"].strip():
+                    _log(step + 1, "✅ Opprydding ferdig",
+                         f"Formatert output: {len(cleanup_result['output'].splitlines())} linjer")
+                    all_output_parts.clear()
+                    all_output_parts.append(cleanup_result["output"])
+                    all_code_parts.append(cleanup_code)
+                else:
+                    _log(step + 1, "⚠️ Opprydding feilet",
+                         "Bruker original output i stedet")
+        except Exception:
+            _log(step + 1, "⚠️ Opprydding hoppet over",
+                 "Kunne ikke formatere — bruker original output")
+
+    return _make_result(steps=step)
+
+
+# ---------------------------------------------------------------------------
+# Cleanup prompt — for the final formatting pass
+# ---------------------------------------------------------------------------
+
+_CLEANUP_PROMPT = textwrap.dedent("""\
+    Du er en oppryddingsassistent.  Du har nettopp fått rå output fra en Plaxis-agent.
+    Din eneste jobb er å reorganisere og formatere denne outputen til et rent, lesbart format.
+
+    REGLER:
+    • Returner KUN ren Python-kode som printer det ryddige resultatet.
+    • INGEN Plaxis API-kall — bare print()-setninger med de ryddige dataene.
+    • Behold ALLE data — ikke fjern noe!  Bare omorganiser og formater.
+    • Fjern duplikater, tomme linjer, og irrelevant støy.
+    • Grupper relaterte data under klare overskrifter.
+
+    OUTPUT-FORMAT (MÅ følges):
+    print("=== SEKSJONSNAVN ===")
+    print("ITEM: felt1 | felt2 | felt3")
+
+    EKSEMPEL — fra rotete input:
+        Prosjekt: TestProsjekt123
+        Plates[0] - Plate_1
+        Plate_1 material = ConcreteMat  EA = 1.2e7
+        Phase_1   Plate_1 M=23.5  N=100.2  Q=15.3
+        Phase_1   Plate_1 M=23.5  N=100.2  Q=15.3   (duplikat)
+
+    Til ren output:
+        print("=== PROSJEKTINFO ===")
+        print("ITEM: Prosjekt | TestProsjekt123")
+        print("=== PLATER ===")
+        print("ITEM: Plate_1 | Material: ConcreteMat | EA: 1.2e7")
+        print("=== RESULTATER ===")
+        print("ITEM: Phase_1 | Plate_1 | M: 23.5 | N: 100.2 | Q: 15.3")
+
+    Gjør det RYDDIG, KOMPAKT og LESBART.  Skriv '# FERDIG' til slutt.
+""")
+
+
+def _generate_cleanup(raw_output: str, user_message: str) -> str:
+    """
+    Ask the LLM to produce a cleanup code that reformats *raw_output*.
+
+    Returns Python code (only print statements) or empty string on failure.
+    """
+    # Truncate very long output to avoid token overflow
+    truncated = raw_output[:12000]
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": _CLEANUP_PROMPT},
+        {"role": "user", "content": (
+            f"Brukeren spurte: «{user_message[:200]}»\n\n"
+            f"Rå output fra agenten:\n```\n{truncated}\n```\n\n"
+            "Reorganiser og formater dette til et rent, strukturert format "
+            "med ==='SEKSJON'=== overskrifter og ITEM:-linjer.  "
+            "Returner KUN Python print()-kode."
+        )},
+    ]
+
+    client, model = _get_client()
+    resp = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_completion_tokens=4096,
+    )
+
+    code = _strip_code_fences(resp.choices[0].message.content or "")
+    if not code or "print" not in code:
+        return ""
+    return code

@@ -1,0 +1,64 @@
+{
+  "categories": [
+    "Geoteknikk",
+    "Peling",
+    "Grunnundersøkelser",
+    "Standarder",
+    "Beregninger",
+    "Materialer",
+    "Miljø",
+    "Generelt"
+  ],
+  "entries": [
+    {
+      "id": "1",
+      "question": "Hva er geoteknikk?",
+      "answer": "Geoteknikk er en gren av byggteknikk som omhandler mekanisk oppførsel av jord og fjell, og anvendelsen av denne kunnskapen i ingeniørarbeid. Det inkluderer grunnundersøkelser, fundamentering, jordstabilitet, og grunnforsterkning.",
+      "category": "Geoteknikk",
+      "tags": ["grunnleggende", "definisjon"],
+      "created_by": "system",
+      "created_at": "2026-03-30T00:00:00Z",
+      "updated_at": "2026-03-30T00:00:00Z"
+    },
+    {
+      "id": "2",
+      "question": "Hva er dreietrykkssondering (DTS)?",
+      "answer": "Dreietrykkssondering (DTS) er en feltvinnemetode for å kartlegge grunnforholdene. En sonderingsstang med et bor i bunnen drives ned i grunnen med kombinasjon av trykk og rotasjon. Metoden gir informasjon om lagdeling, jordtyper, og dybde til fast grunn eller fjell.",
+      "category": "Grunnundersøkelser",
+      "tags": ["sondering", "DTS", "feltarbeid"],
+      "created_by": "system",
+      "created_at": "2026-03-30T00:00:00Z",
+      "updated_at": "2026-03-30T00:00:00Z"
+    },
+    {
+      "id": "3",
+      "question": "Hva er Eurocode 7 (NS-EN 1997)?",
+      "answer": "Eurocode 7 (NS-EN 1997) er den europeiske standarden for geoteknisk prosjektering. Den består av to deler: Del 1 omhandler generelle regler, og Del 2 omhandler grunnundersøkelser og laboratorieprøving. Standarden brukes sammen med nasjonale tillegg (NA) for å tilpasse den til norske forhold.",
+      "category": "Standarder",
+      "tags": ["eurocode", "NS-EN 1997", "prosjektering"],
+      "created_by": "system",
+      "created_at": "2026-03-30T00:00:00Z",
+      "updated_at": "2026-03-30T00:00:00Z"
+    },
+    {
+      "id": "4",
+      "question": "Hva er bæreevne for peler?",
+      "answer": "Bæreevne for peler er den maksimale lasten en pel kan overføre til grunnen. Den bestemmes av to komponenter: spissbæreevne (motstanden ved pelspissen) og mantelbæreevne (friksjonen langs pelens sider). Bæreevnen beregnes etter formler i Eurocode 7 og verifiseres ofte med prøvebelastning.",
+      "category": "Peling",
+      "tags": ["bæreevne", "peler", "fundamentering"],
+      "created_by": "system",
+      "created_at": "2026-03-30T00:00:00Z",
+      "updated_at": "2026-03-30T00:00:00Z"
+    },
+    {
+      "id": "5",
+      "question": "Hva er kvikkleire?",
+      "answer": "Kvikkleire er en sensitiv leire som ved omrøring mister det meste av sin fasthet og kan flyte som en væske. Den dannes når salt lekker ut av marine avsetninger over tid. Kvikkleire er spesielt utbredt i Norge og kan forårsake store skred. Kartlegging og stabilitetsvurderinger er viktige tiltak for å sikre mot kvikkleireskred.",
+      "category": "Geoteknikk",
+      "tags": ["kvikkleire", "skred", "stabilitet", "leire"],
+      "created_by": "system",
+      "created_at": "2026-03-30T00:00:00Z",
+      "updated_at": "2026-03-30T00:00:00Z"
+    }
+  ]
+}

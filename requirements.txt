@@ -3,6 +3,7 @@
 # Backend
 flask>=2.3.0
 flask-cors>=4.0.0
+flasgger>=0.9.7
 sqlalchemy>=2.0.0
 openpyxl>=3.1.0        # Excel report generation
 gunicorn>=21.2.0       # Production WSGI server (Azure App Service)
@@ -10,14 +11,30 @@ gunicorn>=21.2.0       # Production WSGI server (Azure App Service)
 # Frontend
 streamlit>=1.36.0
 streamlit-plotly-events>=0.0.6
+streamlit-folium>=0.27.0
 requests>=2.31.0
 plotly>=5.18.0
+folium>=0.20.0
+pyproj>=3.6.0
+scipy>=1.12.0
 
 # Database drivers
 psycopg2-binary>=2.9.0  # Azure PostgreSQL / any PostgreSQL
 azure-storage-blob>=12.19.0  # Azure Blob Storage (IFC, Excel, DWG)
 # pyodbc>=4.0.0          # Azure SQL (MSSQL) — requires system ODBC driver
 # azure-identity>=1.14.0 # Azure managed identity auth
+
+# AI / Plaxis Agent
+openai>=1.30.0           # Azure OpenAI + OpenAI API
+azure-ai-projects>=2.0.0 # Azure AI Foundry agent SDK
+azure-identity>=1.14.0   # Azure credential auth
+faiss-cpu>=1.7.0         # Vector similarity search
+numpy>=1.24.0            # Numerical operations
+pypdf>=4.0.0             # PDF text extraction
+pymupdf>=1.24.0          # PDF text extraction via fitz (preferred)
+
+# GeoGPT — Azure AI Search (RAG)
+azure-search-documents>=11.4.0  # Azure AI Search SDK
 
 # Development
 python-dotenv>=1.0.0

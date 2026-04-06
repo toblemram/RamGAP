@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: "Source Sans Pro", sans-serif;
+    padding: 0 2px;
+    background: transparent;
+    overflow: hidden;
+}
+.label {
+    font-size: 0.85rem;
+    font-weight: 400;
+    padding-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.val {
+    font-size: 0.85rem;
+    font-weight: 600;
+    min-width: 55px;
+    text-align: right;
+    white-space: nowrap;
+}
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+    background: linear-gradient(to right, var(--ac) var(--pct), var(--tr) var(--pct));
+}
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--ac);
+    cursor: grab;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+    transition: transform 0.08s ease;
+}
+input[type="range"]::-webkit-slider-thumb:active {
+    cursor: grabbing;
+    transform: scale(1.18);
+}
+input[type="range"]::-moz-range-thumb {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--ac);
+    cursor: grab;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+}
+input[type="range"]::-moz-range-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--tr);
+}
+</style>
+</head>
+<body>
+<div class="label" id="lbl"></div>
+<div class="row">
+    <input type="range" id="sl">
+    <span class="val" id="v"></span>
+</div>
+<script>
+(function() {
+    var sl = document.getElementById('sl');
+    var lbl = document.getElementById('lbl');
+    var vEl = document.getElementById('v');
+    var dec = 2;
+    var dragging = false;
+    var timer = null;
+
+    function post(type, payload) {
+        var msg = {isStreamlitMessage: true, type: type};
+        if (payload) { for (var k in payload) msg[k] = payload[k]; }
+        window.parent.postMessage(msg, "*");
+    }
+
+    function updateTrack() {
+        var pct = ((sl.value - sl.min) / (sl.max - sl.min)) * 100;
+        sl.style.setProperty('--pct', pct + '%');
+    }
+
+    function show(v) {
+        vEl.textContent = parseFloat(v).toFixed(dec);
+    }
+
+    sl.addEventListener('pointerdown', function() { dragging = true; });
+    sl.addEventListener('touchstart', function() { dragging = true; }, {passive: true});
+    window.addEventListener('pointerup', function() { dragging = false; });
+    window.addEventListener('touchend', function() { dragging = false; });
+
+    sl.addEventListener('input', function() {
+        var v = parseFloat(sl.value);
+        show(v);
+        updateTrack();
+        clearTimeout(timer);
+        timer = setTimeout(function() {
+            post("streamlit:setComponentValue", {value: v});
+        }, 80);
+    });
+
+    window.addEventListener('message', function(e) {
+        if (!e.data || e.data.type !== 'streamlit:render') return;
+        var a = e.data.args;
+        dec = (a.decimals != null) ? a.decimals : 2;
+        sl.min = a.min;
+        sl.max = a.max;
+        sl.step = a.step;
+
+        if (!dragging) {
+            sl.value = a.value;
+            show(a.value);
+            updateTrack();
+        }
+
+        lbl.textContent = a.label || '';
+
+        /* theme */
+        var t = e.data.theme;
+        var ac = (t && t.primaryColor) ? t.primaryColor : '#ff4b4b';
+        var fg = (t && t.textColor) ? t.textColor : '#31333F';
+        var bg = (t && t.backgroundColor) ? t.backgroundColor : '#ffffff';
+        var tr = (t && t.secondaryBackgroundColor) ? t.secondaryBackgroundColor : '#e6e6e6';
+        document.body.style.color = fg;
+        document.body.style.background = bg;
+        sl.style.setProperty('--ac', ac);
+        sl.style.setProperty('--tr', tr);
+
+        post("streamlit:setFrameHeight", {height: document.body.scrollHeight + 6});
+    });
+
+    post("streamlit:componentReady", {apiVersion: 1});
+    post("streamlit:setFrameHeight", {height: 52});
+})();
+</script>
+</body>
+</html>

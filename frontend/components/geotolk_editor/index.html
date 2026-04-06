@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; background: transparent; }
+
+  #root {
+    width: 100%;
+    user-select: none;
+  }
+
+  #chart-wrap {
+    position: relative;
+    width: 100%;
+  }
+
+  #chart {
+    display: block;
+    width: 100%;
+    cursor: default;
+  }
+
+  /* --- inline overlay controls --- */
+  .ov-ctrl {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    transform: translateY(-50%);
+    pointer-events: auto;
+    z-index: 10;
+  }
+  .ov-ctrl select {
+    font-size: 11px;
+    padding: 1px 3px;
+    border-radius: 3px;
+    border: 1px solid #ccc;
+    background: rgba(255,255,255,0.92);
+    cursor: pointer;
+    max-width: 68px;
+  }
+  .swatch {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border-radius: 2px;
+    border: 1px solid #888;
+    flex-shrink: 0;
+  }
+  .btn-sm {
+    width: 19px; height: 19px;
+    border-radius: 50%;
+    border: 1px solid #bbb;
+    cursor: pointer;
+    font-size: 13px; font-weight: bold;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1; flex-shrink: 0;
+    transition: background 0.15s;
+    background: rgba(255,255,255,0.9);
+  }
+  .btn-add { color: #2e7d32; }
+  .btn-add:hover { background: #a5d6a7; }
+  .btn-rm { color: #c62828; }
+  .btn-rm:hover { background: #ef9a9a; }
+  .btn-sm:disabled { opacity: 0.2; cursor: not-allowed; }
+
+  /* --- drag tooltip --- */
+  #tooltip {
+    position: absolute;
+    display: none;
+    background: rgba(30,30,30,0.9);
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 100;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="chart-wrap">
+    <canvas id="chart"></canvas>
+    <div id="tooltip"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  /* ---- Streamlit communication ---- */
+  function sendMsg(t, d) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: t }, d || {}), "*"); }
+  function stReady()   { sendMsg("streamlit:componentReady", { apiVersion: 1 }); }
+  function stHeight(h) { sendMsg("streamlit:setFrameHeight", { height: h }); }
+  function stValue(v)  { sendMsg("streamlit:setComponentValue", { value: v }); }
+
+  /* ---- State ---- */
+  var data = null, layers = [], maxDepth = 10, maxC2 = 1000;
+  var materials = [], colors = {}, ready = false;
+  var elevation = null, elevRange = null, showYAxis = true;
+  var localVersion = 0, lastSentJson = null, awaitingAck = false;
+
+  /* ---- DOM ---- */
+  var canvas = document.getElementById("chart");
+  var chartWrap = document.getElementById("chart-wrap");
+  var tooltip = document.getElementById("tooltip");
+  var ctx = null;
+
+  /* ---- Layout ---- */
+  var HEIGHT = 700;
+  var MARGIN = { top: 22, right: 14, bottom: 38, left: 56 };
+  var chartH, canvasW, chartW, HIT_R = 10;
+
+  function recalcLayout() {
+    chartH = HEIGHT - MARGIN.top - MARGIN.bottom;
+    canvasW = chartWrap.clientWidth;
+    if (canvasW < 60) canvasW = 300;
+    chartW = canvasW - MARGIN.left - MARGIN.right;
+  }
+
+  /* ---- Scales ---- */
+  function yScale(depth) {
+    if (elevation !== null && elevRange) {
+      var elev = elevation - depth;
+      var eRange = elevRange[1] - elevRange[0];
+      if (eRange < 0.01) eRange = 1;
+      return MARGIN.top + ((elevRange[1] - elev) / eRange) * chartH;
+    }
+    return MARGIN.top + (depth / maxDepth) * chartH;
+  }
+  function yInv(py) {
+    if (elevation !== null && elevRange) {
+      var eRange = elevRange[1] - elevRange[0];
+      if (eRange < 0.01) eRange = 1;
+      var elev = elevRange[1] - ((py - MARGIN.top) / chartH) * eRange;
+      return Math.max(0, Math.min(maxDepth, elevation - elev));
+    }
+    return Math.max(0, Math.min(maxDepth, ((py - MARGIN.top) / chartH) * maxDepth));
+  }
+  function xScale(val) { return MARGIN.left + (val / maxC2) * chartW; }
+
+  /* ---- Helpers ---- */
+  function hexRgba(hex, a) {
+    hex = hex.replace("#", "");
+    return "rgba(" + parseInt(hex.substr(0,2),16) + "," + parseInt(hex.substr(2,2),16) + "," + parseInt(hex.substr(4,2),16) + "," + a + ")";
+  }
+  function niceStep(range, ticks) {
+    if (range <= 0) return 1;
+    var r = range / ticks, mag = Math.pow(10, Math.floor(Math.log10(r))), n = r / mag;
+    return (n <= 1.5 ? 1 : n <= 3 ? 2 : n <= 7 ? 5 : 10) * mag;
+  }
+  function getBounds() { return layers.slice(0, -1).map(function(l){ return l.end; }); }
+
+  /* ---- Canvas setup ---- */
+  function setupCanvas() {
+    recalcLayout();
+    var dpr = window.devicePixelRatio || 1;
+    canvas.style.width = canvasW + "px";
+    canvas.style.height = HEIGHT + "px";
+    canvas.width = canvasW * dpr;
+    canvas.height = HEIGHT * dpr;
+    ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /* ==== DRAW ==== */
+  function draw() {
+    if (!ctx || !data) return;
+    ctx.clearRect(0, 0, canvasW, HEIGHT);
+    var isElev = (elevation !== null && elevRange);
+
+    /* layer colour bands */
+    layers.forEach(function(l) {
+      var y1 = yScale(l.start), y2 = yScale(l.end);
+      ctx.fillStyle = hexRgba(colors[l.type] || "#DDDDDD", 0.30);
+      ctx.fillRect(MARGIN.left, y1, chartW, y2 - y1);
+    });
+
+    /* grid */
+    ctx.strokeStyle = "#e0e0e0"; ctx.lineWidth = 0.5;
+    if (isElev) {
+      var eT = elevRange[1], eB = elevRange[0], eR = eT - eB;
+      var es = niceStep(eR, 12);
+      for (var ev = Math.ceil(eB / es) * es; ev <= eT; ev += es) {
+        var gy = MARGIN.top + ((eT - ev) / eR) * chartH;
+        ctx.beginPath(); ctx.moveTo(MARGIN.left, gy); ctx.lineTo(MARGIN.left + chartW, gy); ctx.stroke();
+      }
+    } else {
+      var ds = niceStep(maxDepth, 12);
+      for (var d = 0; d <= maxDepth; d += ds) {
+        var gy2 = yScale(d);
+        ctx.beginPath(); ctx.moveTo(MARGIN.left, gy2); ctx.lineTo(MARGIN.left + chartW, gy2); ctx.stroke();
+      }
+    }
+    var xs = niceStep(maxC2, 6);
+    for (var v = 0; v <= maxC2; v += xs) {
+      var gx = xScale(v);
+      ctx.beginPath(); ctx.moveTo(gx, MARGIN.top); ctx.lineTo(gx, MARGIN.top + chartH); ctx.stroke();
+    }
+
+    /* spyling & slag */
+    var barW = Math.max(chartW * 0.035, 4);
+    (data.spyling || []).forEach(function(se) {
+      ctx.fillStyle = "rgba(33,150,243,0.50)";
+      ctx.fillRect(MARGIN.left, yScale(se[0]), barW, yScale(se[1]) - yScale(se[0]));
+    });
+    (data.slag || []).forEach(function(se) {
+      ctx.fillStyle = "rgba(229,57,53,0.45)";
+      ctx.fillRect(MARGIN.left + barW + 1, yScale(se[0]), barW, yScale(se[1]) - yScale(se[0]));
+    });
+
+    /* sounding curve */
+    var depths = data.depth || [], c2 = data.c2 || [];
+    if (depths.length) {
+      var step = Math.max(1, Math.floor(depths.length / 800));
+      ctx.strokeStyle = "#000"; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      for (var i = 0; i < depths.length; i += step) {
+        var px = xScale(c2[i]), py = yScale(depths[i]);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    /* boundary lines */
+    var bounds = getBounds();
+    bounds.forEach(function(b, bi) {
+      var by = yScale(b), hot = (bi === hoverIdx || bi === dragIdx);
+      if (hot) {
+        ctx.save(); ctx.strokeStyle = "rgba(229,57,53,0.18)"; ctx.lineWidth = 12;
+        ctx.beginPath(); ctx.moveTo(MARGIN.left, by); ctx.lineTo(MARGIN.left + chartW, by); ctx.stroke();
+        ctx.restore();
+      }
+      ctx.strokeStyle = hot ? "#c62828" : "#e53935";
+      ctx.lineWidth = hot ? 2.8 : 2;
+      ctx.setLineDash([8, 5]);
+      ctx.beginPath(); ctx.moveTo(MARGIN.left, by); ctx.lineTo(MARGIN.left + chartW, by); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+
+    /* terrain marker in elevation mode */
+    if (isElev) {
+      var terrY = yScale(0);
+      ctx.strokeStyle = "#8B4513"; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(MARGIN.left, terrY); ctx.lineTo(MARGIN.left + chartW, terrY); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#8B4513"; ctx.font = "10px sans-serif"; ctx.textAlign = "right";
+      ctx.fillText("Terreng " + elevation.toFixed(1) + " m", MARGIN.left + chartW - 4, terrY - 4);
+    }
+
+    /* Y axis */
+    if (showYAxis) {
+      ctx.fillStyle = "#333"; ctx.font = "11px sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      if (isElev) {
+        var eT2 = elevRange[1], eB2 = elevRange[0], eR2 = eT2 - eB2;
+        var es2 = niceStep(eR2, 12);
+        for (var ev2 = Math.ceil(eB2 / es2) * es2; ev2 <= eT2; ev2 += es2)
+          ctx.fillText(ev2.toFixed(1), MARGIN.left - 5, MARGIN.top + ((eT2 - ev2) / eR2) * chartH);
+        ctx.save(); ctx.translate(13, MARGIN.top + chartH / 2); ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = "center"; ctx.font = "12px sans-serif"; ctx.fillText("Kvote (m)", 0, 0); ctx.restore();
+      } else {
+        var ds2 = niceStep(maxDepth, 12);
+        for (var d2 = 0; d2 <= maxDepth; d2 += ds2)
+          ctx.fillText(d2.toFixed(1), MARGIN.left - 5, yScale(d2));
+        ctx.save(); ctx.translate(13, MARGIN.top + chartH / 2); ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = "center"; ctx.font = "12px sans-serif"; ctx.fillText("Dybde (m)", 0, 0); ctx.restore();
+      }
+    }
+
+    /* X axis */
+    ctx.fillStyle = "#333"; ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.font = "11px sans-serif";
+    for (var v2 = 0; v2 <= maxC2; v2 += xs) ctx.fillText(v2.toFixed(0), xScale(v2), MARGIN.top + chartH + 4);
+    ctx.fillText("Motstand", MARGIN.left + chartW / 2, MARGIN.top + chartH + 22);
+
+    /* border */
+    ctx.strokeStyle = "#aaa"; ctx.lineWidth = 1;
+    ctx.strokeRect(MARGIN.left, MARGIN.top, chartW, chartH);
+
+    /* legend (depth mode only) */
+    if (!isElev) {
+      var lx = MARGIN.left + chartW - 145, ly = MARGIN.top + 6;
+      ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect(lx, ly, 140, 52);
+      ctx.strokeStyle = "#ccc"; ctx.lineWidth = 0.5; ctx.strokeRect(lx, ly, 140, 52);
+      ctx.font = "10px sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(33,150,243,0.5)"; ctx.fillRect(lx+6, ly+6, 10, 10);
+      ctx.fillStyle = "#444"; ctx.fillText("Spyling", lx+20, ly+12);
+      ctx.fillStyle = "rgba(229,57,53,0.45)"; ctx.fillRect(lx+6, ly+20, 10, 10);
+      ctx.fillStyle = "#444"; ctx.fillText("Slag", lx+20, ly+26);
+      ctx.setLineDash([5,3]); ctx.strokeStyle = "#e53935"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(lx+6, ly+40); ctx.lineTo(lx+16, ly+40); ctx.stroke();
+      ctx.setLineDash([]); ctx.fillText("Laggrense (dra)", lx+20, ly+40);
+    }
+  }
+
+  /* ==== Overlays (material select, +/- inside chart-wrap) ==== */
+  function clearOverlays() {
+    var old = chartWrap.querySelectorAll(".ov-ctrl");
+    for (var i = 0; i < old.length; i++) old[i].remove();
+  }
+
+  function buildOverlays() {
+    clearOverlays();
+    layers.forEach(function(layer, i) {
+      var div = document.createElement("div");
+      div.className = "ov-ctrl";
+      div.style.top = ((yScale(layer.start) + yScale(layer.end)) / 2) + "px";
+      div.style.right = "6px";
+      div.dataset.kind = "layer"; div.dataset.idx = i;
+
+      var sw = document.createElement("span");
+      sw.className = "swatch"; sw.style.background = colors[layer.type] || "#DDD";
+      div.appendChild(sw);
+
+      var sel = document.createElement("select");
+      materials.forEach(function(m) {
+        var opt = document.createElement("option");
+        opt.value = m; opt.textContent = m;
+        if (m === layer.type) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", function() {
+        layer.type = sel.value; sw.style.background = colors[layer.type] || "#DDD";
+        draw(); sendLayers();
+      });
+      div.appendChild(sel);
+
+      var rm = document.createElement("button");
+      rm.className = "btn-sm btn-rm"; rm.textContent = "\u2212"; rm.title = "Fjern lag";
+      rm.disabled = layers.length <= 1;
+      rm.addEventListener("click", function() { removeLayer(i); });
+      div.appendChild(rm);
+
+      chartWrap.appendChild(div);
+    });
+
+    var bounds = getBounds();
+    bounds.forEach(function(b, bi) {
+      var div = document.createElement("div");
+      div.className = "ov-ctrl";
+      div.style.top = yScale(b) + "px";
+      div.style.right = "6px";
+      div.dataset.kind = "bound"; div.dataset.idx = bi;
+
+      var btn = document.createElement("button");
+      btn.className = "btn-sm btn-add"; btn.textContent = "+"; btn.title = "Legg til lag her";
+      btn.addEventListener("click", function() { addLayerAt(bi); });
+      div.appendChild(btn);
+      chartWrap.appendChild(div);
+    });
+  }
+
+  function repositionOverlays() {
+    var bounds = getBounds();
+    var els = chartWrap.querySelectorAll(".ov-ctrl");
+    for (var k = 0; k < els.length; k++) {
+      var el = els[k]; if (!el.dataset) continue;
+      var idx = parseInt(el.dataset.idx, 10);
+      if (el.dataset.kind === "layer")
+        el.style.top = ((yScale(layers[idx].start) + yScale(layers[idx].end)) / 2) + "px";
+      else if (el.dataset.kind === "bound")
+        el.style.top = yScale(bounds[idx]) + "px";
+    }
+  }
+
+  /* ==== Layer ops ==== */
+  function copyLayers() { return layers.map(function(l) { return { type: l.type, start: l.start, end: l.end }; }); }
+  function sendLayers() {
+    var c = copyLayers(); lastSentJson = JSON.stringify(c); awaitingAck = true; localVersion++; stValue(c);
+  }
+  function addLayerAt(bi) {
+    var below = layers[bi + 1], mid = (below.start + below.end) / 2;
+    layers.splice(bi + 1, 0, { type: "annet", start: below.start, end: mid });
+    below.start = mid; buildOverlays(); draw(); sendLayers();
+  }
+  function removeLayer(i) {
+    if (layers.length <= 1) return;
+    if (i === 0) layers[1].start = 0; else layers[i - 1].end = layers[i].end;
+    layers.splice(i, 1); buildOverlays(); draw(); sendLayers();
+  }
+
+  /* ==== Drag ==== */
+  var dragIdx = -1, hoverIdx = -1, dragging = false, rafId = null;
+  function canvasPos(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+  function findBound(py) {
+    var bounds = getBounds();
+    for (var i = 0; i < bounds.length; i++) if (Math.abs(py - yScale(bounds[i])) < HIT_R) return i;
+    return -1;
+  }
+
+  canvas.addEventListener("mousedown", function(e) {
+    var p = canvasPos(e), bi = findBound(p.y);
+    if (bi >= 0) { dragIdx = bi; dragging = true; canvas.style.cursor = "ns-resize"; e.preventDefault(); }
+  });
+
+  canvas.addEventListener("mousemove", function(e) {
+    var p = canvasPos(e);
+    if (dragging && dragIdx >= 0) {
+      var newD = yInv(p.y), bounds = getBounds();
+      var minD = dragIdx > 0 ? bounds[dragIdx - 1] + 0.05 : 0.05;
+      var maxD = dragIdx < bounds.length - 1 ? bounds[dragIdx + 1] - 0.05 : maxDepth - 0.05;
+      newD = Math.max(minD, Math.min(maxD, newD));
+      layers[dragIdx].end = newD; layers[dragIdx + 1].start = newD;
+
+      var distUp = newD - layers[dragIdx].start, distDown = layers[dragIdx + 1].end - newD;
+      var extra = (elevation !== null) ? "<br>Kvote: " + (elevation - newD).toFixed(2) + " m" : "";
+      tooltip.style.display = "block";
+      tooltip.style.left = Math.min(p.x + 16, canvasW - 180) + "px";
+      tooltip.style.top = (p.y - 40) + "px";
+      tooltip.innerHTML = "\u2191 " + distUp.toFixed(2) + " m\u2003|\u2003\u2193 " + distDown.toFixed(2) + " m<br>Dybde: " + newD.toFixed(2) + " m" + extra;
+
+      if (!rafId) rafId = requestAnimationFrame(function() { draw(); repositionOverlays(); rafId = null; });
+      return;
+    }
+    var nh = findBound(p.y);
+    if (nh !== hoverIdx) { hoverIdx = nh; draw(); }
+    canvas.style.cursor = (hoverIdx >= 0) ? "ns-resize" : "default";
+  });
+
+  canvas.addEventListener("mouseup", function() {
+    if (dragging) { dragging = false; dragIdx = -1; canvas.style.cursor = "default"; tooltip.style.display = "none"; buildOverlays(); draw(); sendLayers(); }
+  });
+  canvas.addEventListener("mouseleave", function() {
+    if (!dragging) { if (hoverIdx >= 0) { hoverIdx = -1; draw(); } tooltip.style.display = "none"; }
+  });
+
+  /* ==== Streamlit render ==== */
+  window.addEventListener("message", function(event) {
+    if (!event.data || event.data.type !== "streamlit:render") return;
+    var args = event.data.args;
+    data = args.sounding_data || {}; maxDepth = args.max_depth || 10;
+    materials = args.materials || ["leire","sand","fjell","annet"];
+    colors = args.colors || {};
+    elevation = (args.elevation != null) ? args.elevation : null;
+    elevRange = args.elev_range || null;
+    showYAxis = (args.show_y_axis !== false);
+    MARGIN.left = showYAxis ? 56 : 10;
+
+    var c2arr = data.c2 || []; maxC2 = 100;
+    for (var i = 0; i < c2arr.length; i++) if (c2arr[i] > maxC2) maxC2 = c2arr[i];
+    maxC2 *= 1.08;
+
+    if (!dragging) {
+      var inc = JSON.stringify(args.layers || []);
+      if (awaitingAck) { if (inc === lastSentJson) awaitingAck = false; }
+      else if (inc !== JSON.stringify(layers)) layers = JSON.parse(inc);
+    }
+
+    if (!ready) { ready = true; setupCanvas(); }
+    else { var nw = chartWrap.clientWidth; if (nw > 0 && Math.abs(nw - canvasW) > 1) setupCanvas(); }
+    buildOverlays(); draw();
+  });
+
+  /* ==== Init ==== */
+  stReady(); stHeight(HEIGHT + 4);
+  window.addEventListener("resize", function() { if (ready) { setupCanvas(); buildOverlays(); draw(); } });
+})();
+</script>
+</body>
+</html>

@@ -31,27 +31,59 @@ plaxis_bp = Blueprint('plaxis', __name__, url_prefix='/api/plaxis')
 # Replace with Redis or a DB table when multi-worker deployment is needed.
 _plaxis_sessions: Dict[str, Any] = {}
 
+
+# ---------------------------------------------------------------------------
+# Azure OpenAI helper
+# ---------------------------------------------------------------------------
+
+def _get_ai_client():
+    """Return an Azure OpenAI client."""
+    from openai import AzureOpenAI
+    from config import AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_API_VERSION
+    return AzureOpenAI(
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=AZURE_OPENAI_API_KEY,
+        api_version=AZURE_OPENAI_API_VERSION,
+    )
+
+
+def _get_deployment():
+    from config import AZURE_OPENAI_DEPLOYMENT
+    return AZURE_OPENAI_DEPLOYMENT or 'gpt-4o'
+
+
 # ---------------------------------------------------------------------------
 # Demo data (returned when Plaxis is not available)
 # ---------------------------------------------------------------------------
 _DEMO_STRUCTURES = {
     'plates': [
-        {'name': 'Spunt_venstre', 'display_name': 'Name: Spunt_venstre, x = 0.0', 'x': 0.0, 'type': 'plate'},
-        {'name': 'Spunt_høyre',   'display_name': 'Name: Spunt_høyre, x = 15.0',  'x': 15.0,'type': 'plate'},
+        {'name': 'Spunt_venstre', 'display_name': 'Name: Spunt_venstre, x = 0.0', 'x': 0.0, 'type': 'plate',
+         'x1': 0.0, 'y1': 2.0, 'x2': 0.0, 'y2': -12.0, 'length': 14.0,
+         'material': {'name': 'AZ18-770', 'EA1': 2919000, 'EI': 79380, 'd': 0.571, 'w': 0, 'MaterialType': 1}},
+        {'name': 'Spunt_høyre', 'display_name': 'Name: Spunt_høyre, x = 15.0', 'x': 15.0, 'type': 'plate',
+         'x1': 15.0, 'y1': 2.0, 'x2': 15.0, 'y2': -12.0, 'length': 14.0,
+         'material': {'name': 'AZ18-770', 'EA1': 2919000, 'EI': 79380, 'd': 0.571, 'w': 0, 'MaterialType': 1}},
     ],
     'embedded_beams':       [],
     'node_to_node_anchors': [
         {'name': 'Anker_1', 'display_name': 'Name: Anker_1, (0.0,-2.0) → (5.0,-4.0)',
-         'x1': 0.0, 'y1': -2.0, 'x2': 5.0, 'y2': -4.0, 'type': 'node_to_node_anchor'},
+         'x1': 0.0, 'y1': -2.0, 'x2': 5.0, 'y2': -4.0, 'type': 'node_to_node_anchor',
+         'length': 5.39,
+         'material': {'name': 'Ø610/10', 'EA': 12980000, 'MaterialType': 2}},
     ],
     'fixed_end_anchors': [],
     'geogrids':          [],
 }
 _DEMO_PHASES = [
-    {'id': i, 'name': name, 'msf_enabled': False, 'ux_enabled': False, 'capacity_enabled': False}
-    for i, name in enumerate([
-        'Initial phase', 'Installasjon spunt', 'Utgraving nivå 1',
-        'Installasjon anker', 'Utgraving til bunn', 'FoS analyse',
+    {'id': i, 'number': i, 'name': name, 'calc_type': ct, 'calc_type_id': cid,
+     'previous': prev, 'msf_enabled': False, 'ux_enabled': False, 'capacity_enabled': False}
+    for i, (name, ct, cid, prev) in enumerate([
+        ('Initial phase',        'K0-prosedyre',                  1, None),
+        ('Installasjon spunt',   'Plastisk',                      4, 'Initial phase'),
+        ('Utgraving nivå 1',     'Plastisk',                      4, 'Installasjon spunt'),
+        ('Installasjon anker',   'Plastisk',                      4, 'Utgraving nivå 1'),
+        ('Utgraving til bunn',   'Plastisk',                      4, 'Installasjon anker'),
+        ('FoS analyse',          'Sikkerhet (phi/c-reduksjon)',    7, 'Utgraving til bunn'),
     ])
 ]
 _DEMO_RESULTS = {
@@ -65,6 +97,18 @@ _DEMO_RESULTS = {
     },
     'msf':          {'FoS analyse': 1.32},
     'displacement': {'plates': {'Spunt_venstre': {'Utgraving til bunn': 23.5, 'FoS analyse': 28.1}}},
+}
+_DEMO_GEOMETRY = {
+    'soil_layers': [
+        {'name': 'Soillayer_1', 'top': 3.0, 'bottom': 0.0, 'material': 'Fyllmasser'},
+        {'name': 'Soillayer_2', 'top': 0.0, 'bottom': -4.0, 'material': 'Leire 1'},
+        {'name': 'Soillayer_3', 'top': -4.0, 'bottom': -12.0, 'material': 'Leire 2'},
+        {'name': 'Soillayer_4', 'top': -12.0, 'bottom': -18.0, 'material': 'Berg'},
+    ],
+    'boreholes': 1,
+    'water_head': 1.0,
+    'xmin': 0.0, 'xmax': 20.0, 'ymin': -14.0, 'ymax': 3.0,
+    'lines': [],
 }
 
 
@@ -143,6 +187,7 @@ def model_info():
         return jsonify({
             'success': True, 'demo_mode': True,
             'structures': _DEMO_STRUCTURES, 'phases': _DEMO_PHASES,
+            'geometry': _DEMO_GEOMETRY,
         })
 
     g_i = session['g_i']
@@ -260,11 +305,309 @@ def run_extraction():
 
 
 # ---------------------------------------------------------------------------
+# Parametric run (single iteration)
+# ---------------------------------------------------------------------------
+
+@plaxis_bp.route('/parametric-run', methods=['POST'])
+def parametric_run():
+    """Execute one iteration of a parametric study.
+
+    Modifies the KS soil's Su (and optionally gamma), optionally moves the
+    sheet pile bottom, runs calculations, and extracts FoS / displacement /
+    capacity for the requested phases.  Returns a single-row result dict.
+
+    The endpoint is stateless per-call — the frontend loops over combos and
+    calls this endpoint once per combination.
+    """
+    data = request.get_json() or {}
+
+    session_id = data.get('session_id', 'default')
+    session    = _plaxis_sessions.get(session_id, {})
+    g_i = session.get('g_i')
+
+    if not g_i:
+        # Demo mode — return plausible synthetic results
+        import random
+        su = data.get('su', 15)
+        base_fos = 0.8 + su * 0.04 + random.uniform(-0.05, 0.05)
+        return jsonify({
+            'success': True, 'demo_mode': True,
+            'msf': round(base_fos, 2),
+            'ux_max': round(40 - su * 0.8 + random.uniform(-2, 2), 1),
+            'm_max': round(200 + su * 5 + random.uniform(-10, 10), 1),
+        })
+
+    # Real Plaxis execution
+    ks_soil   = data.get('ks_soil')
+    plate     = data.get('plate')
+    su_val    = data.get('su')
+    depth     = data.get('depth')
+    fos_phase = data.get('fos_phase')
+    disp_phase = data.get('disp_phase')
+    cap_phase  = data.get('cap_phase')
+
+    try:
+        from activities.plaxis.parametric.runner import run_single_parametric
+        result = run_single_parametric(
+            g_i=g_i,
+            s_i=session.get('s_i'),
+            ks_soil_name=ks_soil,
+            plate_name=plate,
+            su=su_val,
+            depth=depth,
+            fos_phase=fos_phase,
+            disp_phase=disp_phase,
+            cap_phase=cap_phase,
+            output_port=data.get('output_port'),
+            output_password=data.get('output_password'),
+        )
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Water-level sensitivity (single iteration)
+# ---------------------------------------------------------------------------
+
+@plaxis_bp.route('/water-sensitivity-run', methods=['POST'])
+def water_sensitivity_run():
+    """Execute one iteration of a water-level sensitivity study.
+
+    Sets the borehole water head to the requested level, runs calculations,
+    and extracts FoS / displacement / capacity for the requested phases.
+    """
+    data = request.get_json() or {}
+
+    session_id = data.get('session_id', 'default')
+    session    = _plaxis_sessions.get(session_id, {})
+    g_i = session.get('g_i')
+
+    water_level = data.get('water_level')
+    if water_level is None:
+        return jsonify({'error': 'water_level is required'}), 400
+
+    if not g_i:
+        # Demo mode — return plausible synthetic results
+        import random
+        wl = float(water_level)
+        base_fos = 2.5 - wl * 0.3 + random.uniform(-0.05, 0.05)
+        return jsonify({
+            'success': True, 'demo_mode': True,
+            'water_level': wl,
+            'msf': round(max(base_fos, 0.5), 2),
+            'ux_max': round(15 + wl * 5 + random.uniform(-2, 2), 1),
+            'm_max': round(150 + wl * 30 + random.uniform(-10, 10), 1),
+        })
+
+    # Real Plaxis execution
+    try:
+        from activities.plaxis.parametric.water_sensitivity import run_single_water_level
+        result = run_single_water_level(
+            g_i=g_i,
+            s_i=session.get('s_i'),
+            water_level=float(water_level),
+            plate_name=data.get('plate'),
+            fos_phase=data.get('fos_phase'),
+            disp_phase=data.get('disp_phase'),
+            cap_phase=data.get('cap_phase'),
+            output_port=data.get('output_port'),
+            output_password=data.get('output_password'),
+        )
+        return jsonify(result)
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# AI-assisted features
+# ---------------------------------------------------------------------------
+
+@plaxis_bp.route('/ai-quality-check', methods=['POST'])
+def ai_quality_check():
+    """AI quality check of the connected Plaxis model."""
+    data = request.get_json() or {}
+    model_data = data.get('model_data', {})
+
+    structures = model_data.get('structures', {})
+    phases     = model_data.get('phases', [])
+    geometry   = model_data.get('geometry', {})
+    layers     = geometry.get('soil_layers', [])
+
+    parts = ["=== PLAXIS 2D MODELL ===\n"]
+    parts.append("JORDPROFIL:")
+    for l in layers:
+        parts.append(f"  {l.get('material','?')}: topp={l.get('top')}, bunn={l.get('bottom')}")
+    parts.append(f"Vannstand: {geometry.get('water_head', '?')} m")
+    parts.append(f"Modellgrenser: x=[{geometry.get('xmin')}, {geometry.get('xmax')}], "
+                 f"y=[{geometry.get('ymin')}, {geometry.get('ymax')}]")
+
+    parts.append("\nSTRUKTURER:")
+    for pl in structures.get('plates', []):
+        mat = pl.get('material', {})
+        parts.append(
+            f"  Plate: {pl['name']}, ({pl.get('x1')},{pl.get('y1')}) til ({pl.get('x2')},{pl.get('y2')}), "
+            f"Material: {mat.get('name','?')}, EA={mat.get('EA1','?')}, EI={mat.get('EI','?')}, d={mat.get('d','?')}"
+        )
+    for anc in structures.get('node_to_node_anchors', []) + structures.get('fixed_end_anchors', []):
+        mat = anc.get('material', {})
+        parts.append(f"  Anker: {anc.get('name','?')}, Material: {mat.get('name','?')}, EA={mat.get('EA','?')}")
+    for eb in structures.get('embedded_beams', []):
+        parts.append(f"  EmbeddedBeam: {eb.get('name','?')}")
+
+    parts.append("\nFASER:")
+    for ph in phases:
+        parts.append(f"  {ph.get('number','-')}. {ph['name']} (Type: {ph.get('calc_type','?')}, Forrige: {ph.get('previous','\u2014')})")
+
+    model_description = "\n".join(parts)
+
+    system_prompt = (
+        "Du er en erfaren geoteknisk ingeni\u00f8r som gjennomg\u00e5r Plaxis 2D-modeller. "
+        "Gj\u00f8r en grundig kvalitetssjekk av modellen. Vurder:\n"
+        "1. **Geometri og randbetingelser**: Er modellgrensene store nok? Jordlag logisk ordnet?\n"
+        "2. **Materialegenskaper**: Er verdier realistiske for norske grunnforhold? Mangler noe?\n"
+        "3. **Strukturer**: Er spuntlengde rimelig ift. utgraving? Mangler interfaces?\n"
+        "4. **Faser**: Er faserekkef\u00f8lgen logisk? Mangler sikkerhetsfase (phi/c-reduksjon)?\n"
+        "5. **Vannforhold**: Er vannstand realistisk?\n\n"
+        "Bruk ikoner: \u2705 OK, \u26a0\ufe0f advarsel, \u274c feil.\n"
+        "Skriv p\u00e5 norsk. Referer til de faktiske verdiene i modellen.\n"
+        "Formater som Markdown med overskrifter."
+    )
+
+    try:
+        client = _get_ai_client()
+        response = client.chat.completions.create(
+            model=_get_deployment(),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": model_description},
+            ],
+        )
+        return jsonify({'success': True, 'report': response.choices[0].message.content})
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+@plaxis_bp.route('/ai-report', methods=['POST'])
+def ai_report():
+    """Generate a professional AI calculation report from results."""
+    data = request.get_json() or {}
+    calc_type  = data.get('calc_type', 'unknown')
+    config     = data.get('config', {})
+    results    = data.get('results', [])
+    model_data = data.get('model_data', {})
+
+    structures = model_data.get('structures', {})
+    geometry   = model_data.get('geometry', {})
+
+    parts = ["=== BEREGNINGSRESULTATER ===\n"]
+    parts.append(f"Beregningstype: {calc_type}")
+
+    if calc_type == 'parametric_spunt':
+        parts.append(f"KS-jordlag: {config.get('ks_soil','?')}")
+        parts.append(f"Spunt: {config.get('plate','?')}")
+        parts.append(f"Su-verdier: {config.get('su_values','?')}")
+    elif calc_type == 'water_sensitivity':
+        parts.append(f"Spunt: {config.get('plate','?')}")
+        parts.append(f"Vannstander: {config.get('water_values','?')}")
+
+    parts.append(f"\nAntall kj\u00f8ringer: {len(results)}")
+    parts.append("\nRESULTATTABELL:")
+    for row in results[:30]:
+        parts.append(f"  {row}")
+
+    plates = structures.get('plates', [])
+    if plates:
+        pl = plates[0]
+        mat = pl.get('material', {})
+        parts.append(f"\nSPUNTPROFIL: {mat.get('name','?')}, EA={mat.get('EA1','?')}, "
+                     f"EI={mat.get('EI','?')}, d={mat.get('d','?')}")
+    layers = geometry.get('soil_layers', [])
+    if layers:
+        parts.append("JORDLAG: " + ", ".join(
+            f"{l.get('material','?')} ({l.get('top')}\u2192{l.get('bottom')})" for l in layers))
+    parts.append(f"Vannstand: {geometry.get('water_head','?')} m")
+
+    context = "\n".join(parts)
+
+    system_prompt = (
+        "Du er en erfaren geoteknisk r\u00e5dgiver som skriver profesjonelle beregningsrapporter "
+        "for spuntkonstruksjoner i Norge. Basert p\u00e5 resultatene nedenfor, skriv en "
+        "beregningsrapport med f\u00f8lgende struktur:\n\n"
+        "## 1. Innledning\nKort beskrivelse av beregningen og form\u00e5let.\n\n"
+        "## 2. Modellbeskrivelse\nGeometri, materialer, jordprofil, vannstand.\n\n"
+        "## 3. Resultater\nOppsummer resultatene. Fremhev kritiske verdier (laveste FoS, "
+        "maksimale deformasjoner og krefter). Bruk tabellformat.\n\n"
+        "## 4. Vurdering\nSammenlign med Eurokode 7 / NS-EN (FoS \u2265 1.4 for ULS). "
+        "Vurder deformasjonsniv\u00e5 og spuntkapasitet.\n\n"
+        "## 5. Konklusjon og anbefalinger\nKlare anbefalinger basert p\u00e5 resultatene.\n\n"
+        "Skriv p\u00e5 norsk. Bruk fagterminologi. V\u00e6r presis med tall. Formater som Markdown."
+    )
+
+    try:
+        client = _get_ai_client()
+        response = client.chat.completions.create(
+            model=_get_deployment(),
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": context},
+            ],
+        )
+        return jsonify({'success': True, 'report': response.choices[0].message.content})
+    except Exception as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
 # Calculation history
 # ---------------------------------------------------------------------------
 
-@plaxis_bp.route('/calculations', methods=['GET'])
-def list_calculations():
+@plaxis_bp.route('/calculations', methods=['GET', 'POST'])
+def calculations():
+    """GET: list saved calculations.  POST: save a new calculation record."""
+    if request.method == 'POST':
+        return _save_calculation()
+    return _list_calculations()
+
+
+def _save_calculation():
+    """Persist a completed calculation (parametric / water-sensitivity / extraction)."""
+    data = request.get_json() or {}
+
+    activity_name = data.get('activity_name', 'Plaxis-beregning')
+    username      = data.get('username', 'default')
+    project_id    = data.get('project_id')
+    calc_type     = data.get('calc_type', 'unknown')         # parametric_spunt | water_sensitivity | extract_results
+    config_json   = data.get('config')                       # full input config
+    results_json  = data.get('results')                      # list of result rows
+
+    db = get_db_session()
+    try:
+        calc = PlaxisCalculation(
+            project_id=project_id,
+            username=username,
+            activity_name=activity_name,
+            status='completed',
+            input_port=data.get('input_port'),
+            output_port=data.get('output_port'),
+            results_json=json.dumps({
+                'calc_type': calc_type,
+                'config':    config_json,
+                'rows':      results_json,
+            }),
+        )
+        calc.completed_at = datetime.utcnow()
+        db.add(calc)
+        db.commit()
+        return jsonify({'success': True, 'calculation_id': calc.id, 'calculation': calc.to_dict()})
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'success': False, 'error': str(exc)}), 500
+    finally:
+        db.close()
+
+
+def _list_calculations():
     """Return saved calculation records, optionally filtered by project or user."""
     project_id = request.args.get('project_id', type=int)
     username   = request.args.get('username')

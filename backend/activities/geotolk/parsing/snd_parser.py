@@ -10,7 +10,7 @@ from typing import List, Dict, Tuple
 import re
 import math
 
-__all__ = ["find_snd_data_start", "parse_snd_text", "parse_snd_file", "parse_snd_with_events"]
+__all__ = ["find_snd_data_start", "parse_snd_text", "parse_snd_file", "parse_snd_with_events", "parse_snd_header_coords"]
 
 
 def _looks_like_data_line(line: str) -> bool:
@@ -289,6 +289,27 @@ def parse_snd_with_events(text: str) -> Dict:
         "spyling": spyling,
         "slag": slag,
     }
+
+
+def parse_snd_header_coords(text: str) -> Dict[str, float | None]:
+    """
+    Extract coordinates from SND header.
+
+    SND format: first three lines are Y (northing), X (easting), Z (elevation).
+    Returns dict with keys x, y, z (None if not parseable or zero).
+    """
+    lines = text.splitlines()
+    if len(lines) < 3:
+        return {'x': None, 'y': None, 'z': None}
+    try:
+        y = float(lines[0].strip())   # northing
+        x = float(lines[1].strip())   # easting
+        z = float(lines[2].strip())   # elevation
+        if x == 0.0 and y == 0.0:
+            return {'x': None, 'y': None, 'z': None}
+        return {'x': x, 'y': y, 'z': z}
+    except (ValueError, IndexError):
+        return {'x': None, 'y': None, 'z': None}
 
 
 def parse_snd_file(path: str) -> Dict[str, any]:

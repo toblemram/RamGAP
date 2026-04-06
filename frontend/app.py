@@ -19,6 +19,7 @@ if _HERE not in sys.path:
 from components.auth import require_username
 from components.bug_report import show_feedback_dialog
 from components.api_client import APIClient
+from components.sidebar import render_sidebar
 
 st.set_page_config(
     page_title="RamGAP",
@@ -29,6 +30,10 @@ st.set_page_config(
 
 USERNAME = require_username()
 
+# Render custom sidebar once here (guards against double-render from setup_page())
+st.session_state["_sidebar_rendered"] = False
+render_sidebar(USERNAME)
+
 # ---------------------------------------------------------------------------
 # Navigation — all pages declared once here
 # ---------------------------------------------------------------------------
@@ -38,45 +43,26 @@ pg = st.navigation(
         "": [
             st.Page("pages/home.py", title="Prosjekter", icon="🏠", default=True),
         ],
-        "Verktøy": [
-            st.Page("pages/plaxis.py", title="Plaxis", icon="🔧"),
-            st.Page("pages/geotolk.py", title="GeoTolk", icon="🗺️"),
-            st.Page("pages/modellering.py", title="Modellering", icon="🏗️"),
-        ],
         "Ressurser": [
             st.Page("pages/geogpt.py", title="GeoGPT", icon="🤖"),
+            st.Page("pages/plaxis_agent.py", title="GAPI", icon="🤖"),
             st.Page("pages/standarder.py", title="Standarder", icon="📚"),
             st.Page("pages/excel_ark.py", title="Excel-ark", icon="📊"),
             st.Page("pages/opplaering.py", title="Opplæring", icon="🎓"),
         ],
+        "_hidden": [
+            st.Page("pages/plaxis.py", title="Plaxis automatisering", icon="🔧"),
+            st.Page("pages/geotolk.py", title="GeoTolk", icon="🗺️"),
+            st.Page("pages/modellering.py", title="Modellering", icon="🏗️"),
+        ],
         "System": [
             st.Page("pages/project_setup.py", title="Prosjektinnstillinger", icon="⚙️"),
+            st.Page("pages/prosjekt_endringer.py", title="Prosjekt endringer", icon="📝"),
             st.Page("pages/ramgap_endringer.py", title="Endringslogg", icon="🔄"),
         ],
-    }
+    },
+    position="hidden",
 )
-
-# ---------------------------------------------------------------------------
-# Sidebar extras (below the auto-generated navigation links)
-# ---------------------------------------------------------------------------
-
-@st.cache_data(ttl=15)
-def _check_health() -> bool:
-    return APIClient().is_healthy()
-
-
-with st.sidebar:
-    st.divider()
-    show_feedback_dialog(USERNAME)
-    st.divider()
-    st.caption(f"👤 **{USERNAME}**")
-    try:
-        if _check_health():
-            st.success("✅ Backend OK", icon=None)
-        else:
-            st.warning("⚠️ Backend utilgjengelig")
-    except Exception:
-        st.warning("⚠️ Backend utilgjengelig")
 
 # ---------------------------------------------------------------------------
 # Run the selected page
