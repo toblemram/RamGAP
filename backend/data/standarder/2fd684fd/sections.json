@@ -1,0 +1,9 @@
+[
+  {
+    "id": "info",
+    "title": "Skannet PDF — ingen tekst funnet",
+    "level": 1,
+    "content": "Denne PDF-en ser ut til å være skannet (bilde-basert) og inneholder 166 sider uten lesbar tekst.\n\nFor å bruke denne standarden i RamGAP kan du:\n• Bruke en digital (søkbar) versjon av standarden\n• Konvertere PDF-en med OCR-programvare (f.eks. Adobe Acrobat)\n• Laste opp seksjoner manuelt som tekst",
+    "page": 0
+  }
+]

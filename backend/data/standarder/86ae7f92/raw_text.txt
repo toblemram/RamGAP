@@ -1,0 +1,1332 @@
+ 
+1 
+ 
+ 
+MELDING NR. 11 UTGITT 1997, REVIDERT 2013  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+VEILEDNING FOR PRØVETAKING 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+   NORSK GEOTEKNISK FORENING        NORWEGIAN GEOTECHNICAL SOCIETY 
+
+ 
+2 
+ 
+NGFs-MELDINGER 
+ 
+Arbeider utført av komitéer og utvalg i Norsk Geoteknisk Forening (NGF) , utgis som 
+NGF-Meldinger. Vi ønsker at disse publikasjonene skal bidra til at faget styrkes også 
+utenfor foreningens medlemsrekker. Kommentarer til Meldingens innhold rettes til NGFs 
+sekretær. 
+ 
+Meldingen kan lastes fritt ned i pdf -format fra foreningens hjemme side 
+http://www.ngf.no. 
+ 
+ 
+NGFs styre 
+ 
+ 
+ 
+
+ 
+3 
+ 
+FORORD 
+Norsk Geoteknisk Forenings (NGF) grunnundersøkelseskomite tok våren 1995 initiativet 
+til å utarbeide en veiledning for prøvetaking. Veiledningen beskriver omrørt, forstyrret og 
+uforstyrret prøvetaking, og anv iser normale anvendelsesklasser ved ulike typer prøveta -
+king, samt anbefalinger vedrørende bruk og kontroll av utstyr, prøvetakings -prosedyrer 
+og prøvebehandling. 
+ 
+Som grunnlag for arbeidet har vært benyttet internasjonalt anerkjente prosedyrer for prø -
+vetaking, med utgan gspunkt i gjeldende standarder for prøvetaking . Statens Vegvesen s 
+Håndbok 015 og 280 har vært de viktigste nasjonale referansene for arbeidet.  
+ 
+Grunnundersøkelseskomiteen presenterte i 201 3 en revisjon av meldingen etter 1 8 års 
+bruk.  
+ 
+Komitemedlemmer i 1994: 
+A. Andersen (innleid konsulent), A. Bye, F. Fredriksen (W. Holm, suppleant), O. Lefstad, 
+T. Lunne, A. Robsrud, R. Sandven, K. Hagberg (innkalt) 
+ 
+Komitemedlemmer i 2013: 
+Maj-Gøril Bæverfjord (SINTEF), Torgeir Døssland ( Norconsult), Ande rs Eknes 
+(Norconsult), Knut Hagberg (Statens vegvesen), Arild Handberg (GeoSafe), Jan Jønland 
+(NTNU), Kristoffer Kåsin (NGI), Ørjan Nerland (NGI), Odd Einar Rundmo (Rambøll) 
+og Rolf Sandven (Multiconsult). 
+ 
+Utgiver og forhandler: 
+Norsk Geoteknisk Forening (NGF) 
+Postboks 3930 Ullevål Hageby 
+0806 OSLO 
+ 
+ 
+  
+
+ 
+4 
+ 
+ 
+Innhold 
+FORORD ............................................................................................................................ 3 
+1. INNLEDNING ................................................................................................................ 5 
+1.1 Generelt ..................................................................................................................... 5 
+1.2 Hensikt med veiledningen ......................................................................................... 5 
+1.3 Krav til prøvetakingsutstyr - prøvetakingskategori .................................................. 6 
+1.4 Krav til prøvene – anvendelsesklasser ...................................................................... 6 
+2. OMRØRTE PRØVER – Anvendelsesklasse 5 ............................................................... 9 
+2.1 Generelt ..................................................................................................................... 9 
+2.2 Graving ..................................................................................................................... 9 
+2.3 Skovling og naverboring ........................................................................................... 9 
+2.4 Kanneboring ............................................................................................................ 11 
+2.5 Ramprøvetaking ...................................................................................................... 11 
+2.5.130 mm ramprøvetaker for dreieborstenger .................................................... 12 
+2.5.230/40/54 mm spettprøvetaker for R-32 Geo-stenger ..................................... 12 
+2.5.3 Åpne prøvetakere ............................................................................................. 12 
+2.5.4 Andre prøvetakere ............................................................................................ 12 
+2.5.5 Behandling av prøver fra ramprøvetaking ....................................................... 14 
+3. FORSTYRREDE PRØVER – Anvendelsesklasse 3 og 4 ............................................ 14 
+3.1 Generelt ................................................................................................................... 14 
+3.2 54 mm stempelprøvetaker med plastsylinder ....................................................... 14 
+4. UFORSTYRREDE PRØVER – Anvendelsesklasse 1 og 2 ......................................... 14 
+4.1 Stempelprøvetakere ................................................................................................. 14 
+4.1.1 54 mm stempelprøvetaker med plastsylinder ................................................ 15 
+4.1.254-95 mm stempelprøvetaker med stålsylinder ............................................. 15 
+4.2 Prøvetaking med stempelprøvetakere ..................................................................... 18 
+4.2.1 Planlegging av prøvetaking .............................................................................. 18 
+4.2.2 Krav til prøvetakingsutstyr .............................................................................. 18 
+4.2.3 Klargjøring av prøvetakingsutstyr ................................................................... 21 
+4.2.4 Prosedyre ved prøvetaking ............................................................................... 21 
+4.3 Blokkprøvetaking .................................................................................................... 22 
+4.3.1 Håndskårne blokkprøver .................................................................................. 22 
+4.3.2 Sherbrooke 250 mm blokkprøvetaker ............................................................ 22 
+4.4 Behandling av uforstyrrede prøver ......................................................................... 24 
+4.4.1 Transport .......................................................................................................... 24 
+4.4.2 Lagring ............................................................................................................. 25 
+4.4.3 Utskyvning - behandling i laboratoriet ............................................................ 25 
+4.5 Vurdering av prøvekvalitet ..................................................................................... 25 
+4.5.1 Generelt ............................................................................................................ 25 
+4.5.2 Visuell klassifisering av prøven ....................................................................... 26 
+4.5.3 Vurdering av resultater fra enaksiale trykkforsøk ........................................... 26 
+4.5.4 Vurdering av resultater fra ødometerforsøk ..................................................... 27 
+4.5.5 Vurdering av resultater fra treaksialforsøk ...................................................... 28 
+ 
+
+ 
+5 
+ 
+1. INNLEDNING 
+1.1 Generelt 
+Prøvetaking skal generelt gi grunnlag for sikker identifisering av jordart og bestemmelse 
+av tilhørende klassifiseringsparametre, fysiske/mekaniske egenskaper og eventuelt påvis -
+ning av  forurensninger. For forurensninger henvises til  ISO 10381 -2 ”Soil quality – 
+Sampling. Part 2: Guidance on sampling techniques”, NS -ISO 10381 -5 ”Jordkvalitet - 
+Prøvetaking. Del 5: Veiledning for fremgangsmåte for undersøkelse av grunnforurens -
+ning på urbane og industrielle lokaliteter” og SFT (nå Miljødirektoratet) ”Veiledning for 
+miljøtekniske grunnundersøkelser” (1991).  
+Denne meldingen anviser utstyr og prosedyrer for ulike typer prøvetaking i løsmasser.  
+Prosedyrer og utstyr for prøvetaking er for øvrig også dekket av NS -EN ISO 22475 -1 
+”Geotekniske felt - og laboratorieundersøkelser. Prøvetakingsmetoder og grunnvanns -
+målinger”. Del 1: ”Tekniske utførelsesprinsipper ”. Denne NGF meldingen nr. 11  om-
+handler derimot kun prosedyrer og utstyr som benyttes i det norske markedet, i motset -
+ning til NS-EN ISO 22475-1 som er internasjonalt dekkende.   
+Meldingen presenterer prosedyrer for 5 ulike anvendelsesklasser slik det er definert i NS-
+EN 1997-2 ”Geoteknisk prosjektering”. Del 2: ”Regler basert på grunnundersøkels er og 
+laboratorieprøver”. Anvendelsesklasse 1 og 2, som er omtalt i standarden, er i relativt god 
+overensstemmelse med det s om norsk praksis tidligere har omtalt som kvalitetsklasse 1 , 
+altså uforstyrrede prøver. Anvendelsesklasse 3 og 4  er i overensstemmelse med det som 
+tidligere har vært omtalt som kvalitetsklasse 2 , altså f orstyrrede prøver, mens anvendel-
+sesklasse 5 er i overensstemmelse med det som tidligere har vært omtalt som kvalitets-
+klasse 3, altså omrørte prøver. 
+For å sikre at tilstrekkelig kvalitet blir oppnådd gir NS-EN-1997-2 generelle krav til utfø-
+relse og tolkning ved de vanligste metoder for felt - og laboratorieundersøkelser. Dette er 
+ikke en standard som forteller hvordan prøvingen utføres i felt eller laboratoriet, men en 
+standard som for teller hvordan prøveresultatene brukes i geoteknisk prosjektering. Stan -
+darden danner således et bindeledd mellom de relevante standardene for felt - og laborato-
+rieundersøkelser og NS-EN 1997-1 ”Geoteknisk prosjektering”. Del 1: ”Allmenne regler” 
+som omfatter geoteknisk prosjektering. 
+I arbeidet med denne veiledningen har en forsøkt å følge hovedretningslinjene i de felles 
+europeiske standardene, men det har også vært viktig å nedfelle dagens norske prøveta -
+kingspraksis i et skriftlig dokument, noe som denn e meldingen er et resultat av. Foruten 
+denne meldingen er norsk prøvetakingspraksis også nedfelt i Statens vegvesens Håndbok 
+015 ”Feltundersøkelser” og Håndbok 280 ”Geoteknisk felthåndbok”. 
+ 
+1.2 Hensikt med veiledningen 
+Denne veiledningen er skrevet for: 
+a) De som utfører og de som er ansvarlige for prøvetaking. 
+b) De som benytter resultater fra forsøk på opptatte prøver. 
+c) De som bestiller geotekniske tjenester. 
+ 
+Veiledningen har til hensikt: 
+
+ 
+6 
+ 
+a) Rettlede ved valg av prøvetakingsmetode og utstyr. 
+b) Beskrive hoveddimensjoner og prinsipper ved prøvetakingsutstyr som brukes her i 
+landet, og hvilke forhold som er viktige for å sikre tilstrekkelig prøvekvalitet. 
+c) Fastlegge terminologi for å unngå misforståelser. 
+ 
+Veiledningen gir ingen fullstendig bruksanvisning for det enkelt e utstyr. Statens 
+Vegvesens Håndbok 015, beskriver i så måte de fleste utstyr og metoder mer detaljert.  I 
+tillegg henvises det også til Statens vegvesens Håndbok 280 som i tillegg gir råd for kva -
+litetssikring av hele grunnundersøkelsesprosessen.  
+For øvrig er det viktig å merke seg at p røvetaking alltid skal utføres i henhold til  doku-
+menterbare prosedyrer. 
+ 
+1.3 Krav til prøvetakingsutstyr - prøvetakingskategori 
+For å bestemme sammensetningen og fasthet- og deformasjonsegenskaper av løsmasser 
+er det nødven dig å hente opp prøver av jordlagene for å klassifisere og undersøke 
+prøvene ved laboratorieanalyser. Avhengig av formål benyttes ulike prøvetakingsmeto -
+der. Kvalitetsmessig deles metodene inn i følgende kategorigrupper , og som er i samsvar 
+med NS-EN ISO 22475-1:  
+  
+Kategori A Uforstyrrede prøver skal ha materialstruktur og vanninnhold så lik som 
+mulig det jordarten har i sin naturlige lagring i grunnen. Prøvene egner seg 
+til generell identifisering og klassifisering av jordartene, og til bestem -
+melse av fysiske/mekaniske egenskaper. Dette gjelder i første rekke skjær-
+fasthet, deformasjonsegenskaper og permeabilitet. 
+ 
+Kategori B Forstyrrede prøver skal inneholde alle faste bestanddeler fra det lag de er 
+tatt i, og skal ikke ha vært utsatt for kjemiske endringer under og etter prø-
+vetakingen. En forstyrret prøve egner seg kun for generell identifisering og 
+klassifisering av jordartene. 
+ 
+Kategori C Omrørte prøver har fullstendig forstyrret materialstruktur og kan inne -
+holde bestanddeler fra andre lag enn det de  er hentet fra. Slike prøver 
+egner seg kun til en grov eller foreløpig identifisering av jordartene. 
+ 
+Hvilken prøvetakingsmetode som skal anvendes bestemmes ut fra formålet med undersø -
+kelsen og jordartene og grunnforholdene på stedet. Er det tilstrekkelig  kun å identifisere 
+og klassifisere jordartene, kan forstyrret eller omrørt prøvetaking anvendes. For bestem -
+melse av fasthets- og deformasjonsegenskaper må uforstyrret prøvetaking anvendes. 
+ 
+1.4 Krav til prøvene – anvendelsesklasser 
+NS-EN 1997-2:2007+NA:2008 setter krav til prøvene ved å dele dem inn i anvendelses -
+klasser, se tabell 1. 
+ 
+
+ 
+7 
+ 
+Sammenhengen mellom anvendelsesklasser og prøvetakingskategori er vist nederst i 
+tabell 1. Anvendelsesklasse 1 og 2 er såkalte uforstyrrede prøver hvor det må benyttes 
+prøvetakingsutstyr i kategori A for å  oppnå til fredsstillende kvalitet i laboratoriet. 
+Anvendelsesklasse 2 og 3 er forstyrrede prøver hvor det som minimum må benyttes prø -
+vetakingsutstyr i kategori B for å oppnå til fredsstillende kvalitet, mens anvendelsesklasse 
+5 er omrørte prøver hvor det er tilstrekkelig å benytte prøvetakingsutstyr i kategori C  for 
+å oppnå tilfredsstillende kvalitet i laboratoriet. 
+ 
+Tabell 1. Anvendelsesklasser for jordprøver og egenskaper som bestemmes i laboratoriet 
+(ref. NS-EN 1997-2:2007+NA:2008). 
+ 
+Jordegenskaper Anvendelsesklasser 
+Uforstyrret Forstyrret Om-
+rørt 
+1 2 3 4 5 
+Uforandrede jordegenskaper 
+kornstørrelse 
+vanninnhold 
+densitet, densitetsindeks, permeabilitet 
+kompressibilitet, skjærfasthet 
+ 
+* 
+* 
+* 
+* 
+ 
+* 
+* 
+* 
+ 
+ 
+* 
+* 
+ 
+ 
+* 
+ 
+ 
+ 
+ 
+Egenskaper som kan bestemmes 
+jordartssekvenser 
+jordlagsgrenser – grov 
+jordlagsgrenser – fin 
+konsistensgrenser, korndensitet, humusinnhold 
+vanninnhold 
+densitet, densitetsindeks, porøsitet, permeabilitet 
+kompressibilitet, skjærfasthet 
+ 
+* 
+* 
+* 
+* 
+* 
+* 
+* 
+ 
+* 
+* 
+* 
+* 
+* 
+* 
+ 
+ 
+* 
+* 
+ 
+* 
+* 
+ 
+ 
+ 
+* 
+* 
+ 
+* 
+ 
+ 
+* 
+ 
+Prøvetakingskategori iht. NS-EN ISO 22475-1 A 
+  B  
+  C  
+ 
+Anvendbarheten av utstyr og metoder er avhengig av jordartene, og retningslinjer for valg 
+av utstyr og gjennomføring av prøvetakingen er gjengitt i tabell 2. 
+ 
+Annet utstyr enn det som er nevnt vil kunne tillates brukt. Det oppførte utstyr tjener da 
+som referanseutstyr for klassebestemmelse. 
+ 
+ 
+ 
+
+ 
+8 
+ 
+Tabell 2. Utstyr og metode relatert til jordart, prøvetakingskategori og anvendelses-
+klasse. 
+ 
+Prøve/metode Jordart Normal 
+(mulig)  
+dybde 
+(m) 
+Normal 
+prøve-
+takings-
+kategori 
+Normal 
+anvendelses-
+klasse 
+ 
+Poseprøver 
+  
+ 
+ 
+ 
+ 
+Graving Leire, silt, sand, grus, morene 6 (8) C 5 
+Skovling Leire (silt, sand over GV-standen) 5 (8) C 5 
+Kanneboring Organiske jordarter, bløt leire 5 (10) B-C 3-5 
+Naverboring Leire (silt, sand over GV-standen)  5 (15) C 5 
+     
+Ramprøvetaking     
+30 mm/dreieborstenger Leire, silt, sand, fin grus 10 (15) B-C 3-5 
+30/40/54 mm/R-32 
+Geostenger 
+Leire, silt, fin grus under fyllinger  15 (25) B-C 3-5 
+ mm åpne 
+prøvetakere 
+Morene, grus, fast sand 15 (25) B-C 3-5 
+ 
+Sylinderprøver 
+    
+ mm modifisert  Løs-middels fast lagret silt, sand, 
+grus 
+15 
+ 
+B 3 
+     
+ mm  m/plastsylinder Leire Ip > 30% 30 (50) A 2 
+ mm  m/plastsylinder Sensitive siltige leirer og fin silt  30 (50) A-B 2-3 
+ mm  m/plastsylinder Organiske materialer  30 A-C 2-5 
+ mm  m/plastsylinder Løst lagret sand, grov silt 20 B 3-4 
+     
+ mm  m/stålsylinder Leire Ip > 30% 30 (50) A 1-2 
+ mm  m/stålsylinder Sensitive siltige leirer og fin silt  30 (50) A 1-2 
+ mm  m/stålsylinder Organiske materialer  30 A-C 2-5 
+ mm  m/stålsylinder Løst lagret sand, grov silt 20 B 3-4 
+     
+ mm  m/plastsylinder Leire 30 A 1-2 
+     
+mm  m/stålsylinder Leire Ip > 30% 30 A 1 
+ mm  m/stålsylinder Sensitive siltige leirer og fin silt  30 A 1-2 
+ mm  m/stålsylinder Organiske materialer  30 A-C 2-5 
+ mm  m/stålsylinder Løst lagret sand, grov silt 20 A-B 2-3 
+     
+mm  m/stålsylinder Leire 20 (30) A 1 
+     
+Blokkprøver     
+Håndskåret Leire 61 A 1 
+ mm  Sherbrooke 
+ 
+Magre, sensitive leirer Ip < 30%, 
+og andre leirer  
+15 (25) A 1 
+ 
+ 
+                                                 
+1 For dype byggegroper kan dybden være større. 
+
+ 
+9 
+ 
+2. OMRØRTE PRØVER – Anvendelsesklasse 5 
+2.1 Generelt 
+Denne type prøvetaking innebærer mulighet for innblanding av partikler fra andre lag, 
+endring av vanninnhold og omrøring av massene. 
+ 
+Ved prøvetaking i anvendelsesklasse 5 overføres prøvene til plastposer (plastkopper) i 
+felten før de sendes til laboratoriet. Plastposene forsegles og merkes med merkelapper 
+som angir sted, dybde, dato, prøvenummer og signatur for operatør. Borkort med oversikt 
+over lagdeling, materialtype og an givelse av sted, dybde, dato, prøvenummer og signatur 
+sendes med prøvene. Den visuelle klassifisering en er avhengig av boremannskapets erfa -
+ring. 
+ 
+2.2 Graving 
+I mange tilfeller kan graving være den billigste og beste form for opptak av omrørte 
+prøver, og metoden kan benyttes i de fleste jordarter. 
+ 
+Grøfter og sjakter må sikres i henhold til offentlige forskrifter. Prøvene skal fortrinnsvis 
+tas fra de renskårne veggene og dekke de enkelte lag. En skisse gjennom graveprofilet 
+skal tegnes opp. Beliggenhet og m ektighet av de forskjellige lag måles og legges inn på 
+skissen. Opplysninger om større steiner som tas ut av prøven og vannførende lag er også 
+nyttige å registrere. 
+ 
+Ved massetaksundersøkelser i grovkornige og dårlig sorterte materialer, d.v.s. materialer 
+som består av både grove og fine korn, bør det tas ut større mengder materiale som blan -
+des på stedet og kvarteres til ønsket prøvestørrelse (se SV V Håndbok 015). Nødvendig 
+prøvestørrelse er avhengig av kornstørrelsen og sorteringen og skal ikke være mindre enn 
+vist i tabell 3, (se SVV Håndbok 014). Det kan interpoleres i tabellen.  
+ 
+Tabell 3: Minste prøvemengde (m min) for sikteanalyse. D er den kornstørrelse (sikte -
+åpning) som 100% av materialet passerer (ref. SVV Håndbok 014). 
+ 
+D (mm) 90 63 31,5 16 8 <4 
+mmin (kg) 80 40 10 2,6 0,6 0,2 
+ 
+Merking og registrering utføres som beskrevet i kap. 2.1. 
+ 
+2.3 Skovling og naverboring 
+Skovlbor og navere benyttes for opptak av omrørte prøver og ved forboring. Boredybden 
+er begrenset til grunn vannstanden i grove masser, mens rekkevidden i prinsippet er ube -
+grenset i finkornige materialer. Borene kan fås med 5,1 – 30,5 cm diameter (2” - 12”).  
+  
+For skovlbor benyttes vanligvis 10,2 cm (4”) og 15,2 cm (6”) diameter håndoperert borut-
+rustning, se fig. 1. Ved opptak av skovlb orede prøver legges disse i en streng på bakken 
+og representative prøver tas ut i henhold til borplan eller etter bormannskapets skjønn. 
+
+ 
+10 
+ 
+ 
+Prøvetakerdimensjon for naverbor er vanligvis 7,6 – 20,3 cm diameter (3” – 8”), se fig. 2. 
+Ved naverprøvetaking skrus naveren ned i massene ved hjelp av maskinelt utstyr. Etter at 
+ønsket boredybde er nådd, stoppes rotasjonen og boret trekkes opp til overflaten. Prøve -
+materialet samles fra mellomrommet mellom skrueflatene. Ved prøvetaking til større dyp 
+bør naveren være fo rsynt med utløsbar spiss som slipper til luft i bunnen av hullet ved 
+opptrekking. 
+ 
+ 
+ 
+ 
+Figur 1. Skovlbor.      Figur 2. Naverbor.   
+ 
+Ved så vel skovlboring som naverboring kan materiale fra hullveggen rase ned i 
+borehullet. Det er derfor viktig å holde kon troll med boredybden mellom hver prøveta -
+king. Ved opptrekk kan også materialet fra overliggende lag ”forurense” prøvene. Ved 
+prøvetaking med skovlbor bør det vurderes om toppen av prøven skal fjernes. 
+ 
+Ved prøvetaking med naverbor skrapes det ytterste lag et vekk før prøvematerialet samles 
+i plastposer og merkes. Merking og registrering av opptatte prøver utføres som beskrevet 
+i kap. 2.1. 
+ 
+
+ 
+11 
+ 
+2.4 Kanneboring 
+Kanneboret kan benyttes for opptak av omrørte prøver i organiske materialer og bløt 
+leire, hvor det enk le og håndopererte utstyret har tilstrekkelig penetrasjonsevne. Utstyret 
+egner seg spesielt ved inspeksjon og kartlegging av omdannede organiske materialer, og 
+for prøvetaking av overgangen til bløt, mineralsk grunn. 
+ 
+Prinsipp for kanneboring er vist på fi g. 3. Prøven blir skrapt inn i kannen gjennom en 
+spalte, og må skrapes ut igjen med en skruetrekker eller lignende. Det gjøres oppmerk -
+som på at det kan finnes andre typer kanneboringsutstyr enn det som er vist på fig. 3. 
+ 
+Identifikasjon av tynne lag kan v ære vanskelig, og krever forsiktighet ved overføring til 
+plastposer. Merking og registrering av prøver utføres som beskrevet i kap. 2.1.  
+ 
+ 
+ 
+ 
+Figur 3. Prinsipp for kanneboring. 
+ 
+2.5 Ramprøvetaking 
+For å kunne penetrere i fast lagrede masser må det vanligv is rammes på prøvetakingsut -
+styret. Diameteren på prøvetakersylinderen begrenser hvor grove materialer man kan ta 
+prøver av, mens rammeutstyret og prøvetakerens m ekaniske styrke begrenser penetra -
+sjonsevnen. 
+ 
+
+ 
+12 
+ 
+Det finnes ramprøvetakere både med og uten stem pel. Ved bruk av stempelprøvetaker 
+holdes prøvesylinderen stengt under nedrammingen inntil ønsket dybde for prøvetakingen 
+er nådd (fortrengningsboring). Stempelet utløses og prøven rammes deretter inn i 
+sylinderen. Ved bruk av åpen prøvetaker må det benytt es foringsrør som enten rammes 
+eller føres ned ved bruk av Odex-utstyr, der massene fjernes under nedboringen. Penetra -
+sjon og nedføring av foringsrør kan også oppnås ved rotasjonsboring og stabilisering av 
+borehullet med tung væske, eller ved nedføring av  hule jordnavere (”hollow stem 
+augers”). Sistnevnte utstyr er ikke vanlig å benytte i Norge. 
+ 
+2.5.130 mm ramprøvetaker for dreieborstenger 
+30 mm ramprøvetaker er en stempelprøvetaker som forlenges med 25 mm evt.mm 
+borstenger, se fig. 4. Nedrammingen skjer ved hjelp av rigg og/eller slagbormaskin. Prø -
+vetakeren egner seg i masser fra leire til fin grus. Penetrasjonsevnen er avhengig av jord -
+artene og deres fasthet, og er vanligvis begrenset til ca. 10 m dybde. Prøvetakeren kan 
+utstyres med prøvefang er, men hvis dette ikke benyttes bør prøvetakeren rammes noe 
+dypere enn full prøve (overramming) for å sikre mot tap av prøve. 
+ 
+2.5.230/40/54 mm spettprøvetaker for R-32 Geo-stenger 
+Prøvetakeren brukes sammen med 45 mm Geo-stenger med R-32 gjenger. Systemet be-
+nytter ikke innerstenger. 
+ 
+Prøvetakeren egner seg til opptak av prøver i forbindelse med kontrollboring i faste, 
+vanskelig bo rbare masser og har et aktivt tverrsnitt på 30 /40/54 mm, se fig. 5. Den er 
+også velegnet for prøvetaking under fyllinger og gir gode muligheter for opptak av prøver 
+også under grunnvannstanden. Penetrasjonen utføres med maskinelt utstyr. Prøvetakeren 
+føres ned i forboret hull til ønsket dybde. Deretter rammes/presses prøvetakeren 10 – 15 
+cm ned i uberørt masse for å oppnå godt feste for stempelspaden i front av prøvetakeren. 
+Borstrengen roteres så 3 omdreininger mot venst re. Stempelstangen frigjøres derved og 
+prøvetakeren kan rammes 50 – 60 cm ned for skjæring av prøve. Prøvefangeren motvir -
+ker tap av prøve. Det anbefales en sonderboring utført parallelt med planlagt prøvehull 
+for opplysninger om stor stein eller fjell. Dette kan hindre tap av prøve eller prøvetakerut-
+styr. 
+ 
+2.5.3 Åpne prøvetakere 
+mm åpen prøvetaker benyttes sammen  med 5” Odexutstyr.  Prøvetakeren er utstyrt 
+med prøvefanger og det kan oppnås en maksimal prøvelengde på 60 cm. 
+ 
+Det finnes også en 54 mm åpen prøveta ker med tilsvarende bruksområde, samt at det 
+også kan benyttes åpen Geo-stang.  
+ 
+2.5.4 Andre prøvetakere 
+En svenskprodusert 45 mm gjennomstrømningsprøvetaker  blir i økende grad benyttet 
+for prøvetaking i morene og andre grove masser. Prøvetakeren er utrustet med borkrone 
+
+ 
+13 
+ 
+og bores ned til ønsket prøvetakingsnivå. Ved nedb oringen transporteres materialet inn i 
+sylinderen og ut gjennom et hull lenger oppe på prøvetakerveggen. Når ønsket prøveta -
+kingsnivå er nådd, trekkes prøvetakeren til overflaten og tømmes. I de fleste tilfeller vil 
+materialet fra prøvetakingsnivået forbli  i prøvetakersylinderen under opptrekking. Ved 
+prøvetaking i ensgradert materiale under grunnvannstanden er imidle rtid risikoen for tap 
+av prøve stor. Hvis det tas prøver i steinrik jord, kan hullet i sylinderen blokkeres, noe 
+som kan føre til manglende sa msvar mellom opphentet prøvemateriale og reelt prøveta -
+kingsdyp. 
+ 
+ 
+Figur 4. 30 mm ramprøvetaker Figur 5. 30/40/54 mm 
+for dreieborstenger.  spettprøvetaker for R-32 
+ Geo-stenger.  
+
+ 
+14 
+ 
+2.5.5 Behandling av prøver fra ramprøvetaking 
+Prøvene tas ut ved lette slag med en plasthammer på prøvesylinderen. Materialene samles 
+i rekkefølge på et underlag som gjør det mulig å bedømme materialene visuelt. Resultatet 
+føres på et borkort som beskrevet i kap. 2.1. 
+ 
+3. FORSTYRREDE PRØVER – Anvendelsesklasse 3 og 4 
+3.1 Generelt 
+De prøvetakere som benyttes for å ta opp forstyrrede prøver er beregnet for faste 
+jordarter. På grunn av massefortrengning, buttere skjæreegger og til dels ramming på 
+prøvetakerutstyret blir prøvene forstyrret. I enkelte tilfeller kan bløte lag skvises ut. 
+ 
+Ved prøvetaking i anvendelsesklasse 3 og 4  overføres prøvene til laboratoriet i 
+prøvetakingssylinderen. Dette gir en mulighet for bedre vurdering av lagdeling og mer 
+nøyaktig vanninnholdsbestemmelse. Prøvene må forsegles med endepropp, gummikopper 
+(ev. med stålplater) og slangeklemmer slik at hele eller deler av prøven ikke beveger seg i 
+sylinderen. Hver prøvesylinder  skal inneholde en merkelapp som angir sted, borepunkt, 
+dato, dybde, jordart og operatørsignatur. Den utvendige gummikopp en i prøvens øvre  
+ende skal nummereres. 
+ 
+Borkort skal fylles for hvert borhull. Borkortet skal, foruten de opplysningene som er på 
+merkelappene, gi referanse til prøvetakingen. 
+ 
+3.2 54 mm stempelprøvetaker med plastsylinder 
+Dette er den samme prøvetakeren som er beskrevet  i senere k ap. 4. 1.1, se fig. 6, men 
+denne er utstyrt med kraftigere egg og prøvefanger. Utstyret er beregnet for prøvetaking i 
+løst lagret silt, samt sand og grus ved moderat ramming. 
+ 
+ 
+4. UFORSTYRREDE PRØVER – Anvendelsesklasse 1 og 2 
+4.1 Stempelprøvetakere 
+Selv ved såkalt uforstyrret prøvetaking er det vanskelig å bevare materialets opprinnelige 
+egenskaper fullt ut. Her i landet har tradisjonelt mm stempelprøvetaker vært benyttet 
+ved fortrengningsboringen for opptak av uforstyrrede prøver. Denne type prøvetaking blir 
+betraktet som en god metode i de fleste leirer og i fin silt, forutsatt at prøvetakingsutstyret 
+tilfredsstiller de krav som stilles (se kap. 4.2), og at prøveutskjæring, forsegling og annen 
+prøvebehandling blir forskriftsmessig utført. Stempelprøvetaking kan også benyttes i 
+grov silt og sand i et stabilisert borehull, men i disse jordartene er det betydelig 
+vanskeligere å opprettho lde materialstrukturen, og opptatte prøver er som regel 
+forstyrrede eller omrørte.  
+ 
+ 
+
+ 
+15 
+ 
+Det benyttes også stempelprøvetakere med større prøvediameter ( 72-76 og 95 mm), 
+noe som kan gi forbedret prøvekvalitet, spesielt i bløte, sensitive masser. Prøvene må 
+forsegles slik som beskrevet i kap. 3.1 slik at vanninnholdet ikke endres og slik at prøven, 
+eller deler av den, ikke kan bevege seg i sylinderen. 
+ 
+4.1.1 54 mm stempelprøvetaker med plastsylinder 
+Denne stempelprøvetakeren har en indre prøvesylinder av glassfiberarmet epoxy (omtalt 
+som plastsylinder) og et stål ytterrør med utskiftbar egg, se fig. 6. Prøvetakeren benyttes 
+primært til prøvetaking i leire og silt, men kan også benyttes til prøvetaking i sand og fin 
+grus. Ved prøvetaking av uforstyrrede prøver i leire og silt, benyttes utstyret med slank 
+egg. Prøvefanger benyttes ikke ved prøvetaking i leire og silt . Dimensjonene er for øvrig 
+vist i tabell 5.  
+ 
+4.1.254-95 mm stempelprøvetaker med stålsylinder 
+Fig. 7 viser 54 mm prøvetaker med stålsylinder som leveres med bruttolengde for 
+prøvesylinder på 87 cm . Tilsvarende nettolengde (maksimal prøvelengde) er 77 cm. 
+Sylinderlengden måles og registreres på borkorte t. Selve prøvesylinderen benyttes både 
+med og uten indre klaring. Øvrige dimensjoner er vist i tabell 5.  
+ 
+95 mm stempelprøvetakeren med stålsylinder tar prøver i anvendelsesklasse 1 i de fleste 
+leirer og fin silt. Etter utskjæring og før opptrekking av p røven (ϕ95 mm), bør et 
+utluftingsrør (ev. slange) føres ned i flukt med underkant av prøvesylinderen for å utligne 
+det undertrykk (sug) som oppstår når prøven trekkes opp. Bruk av vanninjeksjon under 
+prøven i forbindelse med opptrekking av prøven for å fje rne vakuumet kan vurderes i 
+spesielle tilfeller. På grunn av prøvens høye vekt kan prøven ellers gå tapt. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+16 
+ 
+ 
+ 
+ 
+1. Sperrehus 
+2. Låsemutter 
+3. Kulelås 
+4. Settskrue 
+5. Overgang plastrør 
+6. Plastrør 
+7. Ytterrør 
+8. Egg 
+9. Stempel 
+10. Førsterør 
+11. Overdel 
+12. Stempelstang 
+13. Bajonettkobling 
+14. Innerdel 
+15. Utløsningsskrue 
+16. Låseskrue 
+17. Hylse  AH-54 
+18. Fjærsplint 4 
+19. Endelokk 
+20. Stang  ϕ16 
+21. Kule  ϕ6 
+22. Mutter  M16 
+23. Gjengestift  M8x10 
+24. Gjengestift  M10x30 
+25. O-ring  ϕ47x3  overgang 
+26. O-ring  ϕ47x3  stempel 
+27. O-ring ϕ47x3  sperrhus front 
+28. O-ring  ϕ47x3 fjær for kulelås 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figur 6.  54 mm stempelprøvetaker med plastsylinder. 
+ 
+ 
+
+
+ 
+17 
+ 
+Merking og utfylling av borkort skal skje som angitt i Kap. 3 
+ 
+ 
+Figur 7.  54 mm stempelprøvetaker 
+med plastsylinder, versjon med slank egg 
+for bruk i finkorninge masser (ref. 
+Geonor). 
+ 
+Figur 8.  54 mm stempelprøvetaker 
+med stålsylinder(ref. Geonor). 
+ 
+
+ 
+18 
+ 
+4.2 Prøvetaking med stempelprøvetakere 
+4.2.1 Planlegging av prøvetaking 
+Antall prøver, type prøvetaking og ønsket prøvekvalitet bestemmes ut fra aktuelle 
+geotekniske problem, og den informasjon om geologi og grunnforhold som  er 
+tilgjengelig. Det anbefales å utføre en nærliggende sondering i forkant av selve 
+prøvetakingen for å grovkartlegge grunnforholdene. 
+ 
+Det er meget viktig å planlegge prøvetakingen nøye, spesielt der en har lagdelte masser. 
+Prøvekvaliteten kan i enkelte tilfeller forbedres betydelig om utskjæringen av prøvene 
+startes i et bløtt lag og avsluttes i et fast lag. 
+ 
+Borleder må informeres om hensikten med prøvetakingen  og hvilke krav som stilles til 
+prøvekvalitet. Det er viktig at det benyttes uskadet prøvetakingsutstyr. 
+4.2.2 Krav til prøvetakingsutstyr 
+Massefortrengning ved nedpressing av en stempelprøvetaker medfører at massen får en 
+prøveforstyrrelse til en dybde som kan anslås til 1,5 – 2 ganger ytre diameter på 
+prøvetakeren, se fig. 1 2 i kap. 4.5 . Massefortrengning ved prøveutskjæring, og dermed 
+prøvekvaliteten, er avhengig av prøvetakerens veggtykkelse, eggvinkel, samt ytre og 
+indre klaringer. Disse forholdene er definert i det etterfølgende, og er i tillegg vist på fig. 
+9.
+der: 
+D1 = indre diameter av kuttesko    α = eggvinkel  
+D2 = største utvendig diameter av kuttesko   1 = prøvesylinder 
+D3 = innvendig diameter av prøvesylinder   2 = kuttesko 
+D4 = utvendig diameter av prøvetaker   3 = innerør (alternativt) 
+ 
+Figur 9. Terminologi for prøvesylindergeometri (ref. NS-EN ISO 22475-1). 
+
+ 
+19 
+ 
+Arealforhold – Krav til veggtykkelse 
+Arealforholdet C a er definert som forholdet mellom det jordvolum som fortrenges av 
+prøvetakeren og volumet av selve prøven: 
+ 
+Ca = (D22 - D12) x 100% / D12 
+ 
+Arealforholdet skal defineres innenfor  en lengde som maksimalt tilsvarer 2 ganger den 
+ytre diameter av prøvesylinder eller kuttesko. 
+ 
+Veggtykkelsen for prøvesylinderen skal være tilstrekkelig til å unngå ødeleggelse ved 
+penetrasjon i massen. Sylinderen skal på den annen side være tynnest mulig  for å unngå 
+unødig prøveforstyrrelse ved nedpressing. Dette medfører at arealforholdet skal være 
+minst mulig, men skal samtidig tilpasses kravet om tilstrekkelig styrke av sylinderen. 
+ 
+Indre klaring 
+Den indre klaringen gir et grunnlag for å redusere mulig mekanisk forstyrrelse av prøven, 
+forårsaket av friksjon langs prøvesylinderens indre flate. Indre klaring er definert som 
+forholdet mellom innvendig diameter av prøvesylinder og indre diameter av kuttesko: 
+ 
+Ci = (D3 - D1) x 100% / D1 
+ 
+Optimal indre klarin g skal redusere friksjon mellom prøvematerialet og 
+sylinderoverflaten til et nødvendig minimum ved prøvetakingen. Indre klaring skal 
+likevel være stor nok til å sikre en viss svelling av prøven, slik at materialet oppnår god 
+kontakt med sylinderveggen. Ett er denne svellingen må friksjonen mellom prøve og 
+sylinderoverflate, sammen med det suget som utvikles i topp av sylinderen under 
+opptrekk, være tilstrekkelig til å bringe prøven til overflaten. Hvis ikke, kan prøven gå 
+tapt. Indre sylinderdiameter skal al dri være mindre enn eggdiameteren hvis man vil ta 
+opp uforstyrrede prøver. 
+ 
+Anbefalt verdi for indre klaring er avhengig av type jord, prøvedybde, prøvediameter, 
+prøvelengde, materiale og overflate på prøvesylinder. Hvis sylinderoverflaten er glatt, 
+kan be nyttes en indre klaring på < 0,5% for prøver ned til dybder på  20 m for ikke -
+svellende leirer.  Indre klaring > 1% vil kunne gi store deformasjoner av prøven og 
+anbefales ikke.  
+ 
+Ytre klaring 
+Den ytre klaringen gir et grunnlag for å redusere mulig mekanisk forstyrrelse av prøven, 
+forårsaket av friksjon langs prøvetakerens ytre flate. Ytre klaring er definert som 
+forholdet mellom utvendig diameter av kuttesko og ytre diameter av prøvetaker: 
+ 
+C0 = (D2 - D4) x 100% / D4 
+ 
+En ytre klaring vil kunne redusere friks jonen mellom prøvetaker og jord, noe som er 
+ønskelig idet denne friksjonen vil forstyrre jorden foran eggen. I dag leveres vanligvis 
+ikke prøvetakingsutstyr med ytre klaring.  
+ 
+ 
+
+ 
+20 
+ 
+Krav til dimensjoner for prøvesylinder 
+Lengden av prøvesylinderen skal være 5 – 15 ganger indre diameter D 3 for å kunne ta 
+opp uforstyrrede prøver . Det må være nok prøvemateriale i sylinderen til at planlagte 
+laboratorieundersøkelser kan utføres. Tverrsnittet for sylinderen skal være sirkulært, og 
+forskjellen mellom største og minst e innvendige diameter skal være mindre enn 0 ,3 mm. 
+Diameteren skal ikke være mindre enn 50 mm for å kunne ta opp uforstyrrede prøver, og 
+skal være jevn og glatt, og fri for skader, korrosjon eller uregelmessigheter som kan 
+forårsake prøveforstyrrelse.  Prøvemateriale til avanserte laboratorieforsøk bør tas fra 
+midten av prøvesylinderen og i alle fall ikke nærmere topp og bunn av prøven enn 2 
+ganger prøvediameteren.  
+ 
+Eggvinkelen 
+Skjæreggen skal være skarp og uskadet, og eggvinkelen skal være så liten som pra ktisk 
+mulig. Denne skal spesifiseres i sammenheng med kravet til arealforhold. For en 
+prøvetaker med areal forhold større enn 15%, skal eggvinkelen være mindre enn 10°. 
+Eggvinkelen kan imidlertid økes noe nær kanten av skjære-eggen for å redusere risiko for 
+ødeleggelse av eggen. I tabell 4 er det gitt en oversikt over anbefalte sammenhenger 
+mellom eggvinkel og arealforhold for opptak av uforstyrrede prøver ( Kallstenius (1963)). 
+I illustrasjonen til tabellen er innflytelsen av arealforhold og eggvinkel på 
+prøveforstyrrelsen forsøkt vist, uten å tallfeste denne. Tabell 4 må bare betraktes som 
+retningsgivende, ettersom også prøvediameter og type jord vil innvirke på oppnådd 
+prøvekvalitet. 
+ 
+ 
+Tabell 4. Eksempler på kombinasjoner av arealforhold og eggvinkel. 
+ 
+Arealforhold Eggvinkel 
+ 
+6 % 
+10 % 
+20 % 
+40 % 
+80 % 
+ 
+ 
+15° 
+12° 
+9° 
+5° 
+5° 
+ 
+Typiske dimensjoner for aktuelle 
+stempelprøvetakere er vist i tabell 5. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+ 
+21 
+ 
+ 
+Tabell 5. Dimensjoner for aktuelle typer stempelprøvetakere. 
+ 
+ 
+Størrelse 
+
+54 mm 
+prøvetaker 
+stålsylinder  
+
+54 mm 
+prøvetaker 
+plastsylind. 
+
+72 mm2 
+prøvetaker 
+stålsylinder 
+
+
+75 mm 
+prøvetaker 
+stålsylinder 
+ 
+
+5 mm 
+prøvetaker 
+stålsylinder
+ 
+Indre diameter (D1), (mm) 
+ 
+Ytre diameter (D2), (mm) 
+ 
+Prøvelengde (l), (cm) 
+ 
+Eggvinkel (α), (°)3 
+ 
+Arealforhold (Ca), (%) 
+ 
+Indre klaring (Ci), (%) 
+ 
+Ytre klaring (C0), (%) 
+ 
+ 
+54 
+ 
+57 
+ 
+77 
+ 
+9 
+ 
+11 
+ 
+0-0,9 
+ 
+0 
+ 
+54 
+ 
+67 
+ 
+67 
+ 
+10 
+ 
+54 
+ 
+0,9 
+ 
+5 
+ 
+72 
+ 
+76,2 
+ 
+77 
+ 
+10 
+ 
+12 
+ 
+0 
+ 
+0 
+ 
+ 
+75 
+ 
+80 
+ 
+67 
+ 
+9 
+ 
+14 
+ 
+0 
+ 
+0 
+ 
+95 
+ 
+101,6 
+ 
+97 
+ 
+5-9 
+ 
+1 
+ 
+0,3 
+ 
+0 
+ 
+4.2.3 Klargjøring av prøvetakingsutstyr 
+Ved klargjøring av prøve takingsutstyret må en sørge for at pakninger er tette, at 
+sylindrene og eventuell kuttesko (skjæregg) er rene og uskadede, og at luft/vann over 
+stempelet kan unnslippe under prøveskjæringen. Ved å smøre litt fett i det nivå 
+stempelpakningen kommer når prøvesylinderen er full, oppnås bedre utviklet vakuum ved 
+opptrekk, og mindre risiko for tap av prøve. Fett og olje ellers i sylinderen kan forårsake 
+tap av prøve og i tillegg forurense prøven. Innvendig fukting av prøvesylinderen med 
+vann vil kunne gi en temporær smøre-effekt og anbefales.  
+ 
+4.2.4 Prosedyre ved prøvetaking 
+Ved gjennomføring av prøvetakingen må toppen av bor ehullet (over grunnvannstanden) 
+holdes større enn prøvetakeren slik at ikke prøven suges ut under opptrekking. 
+ 
+Når stempelet utløses før prøveskjæringen, vil det ha en tendens til å bevege seg oppover. 
+Denne bevegelsen bør unngås ved å holde stempelet fast under hele prøveskjæringen. 
+Prøven vil ellers kunne forstyrres.  Det kan derimot også være uheldige effekter ved å ha 
+et fiksert stempel (kan få komprimering av prøven). 
+ 
+Siste 0,5 m med penetrering før prøveskjæring bør utføres sakte ( 2 cm/s ) for å unngå 
+oppbygging av poretrykk, og man bør vente minimum 2-3 minutter før stempelet løses ut.  
+ 
+                                                 
+2 Shelby tube 
+3 Alle egger er avrundet/brukket i spissen 
+
+ 
+22 
+ 
+Prøveskjæringen må foregå med jevn bevegelse uten  avbrudd og stans. En maksimal 
+skjærehastighet på 2 - 3 cm/s anbefales, d.v.s. ca. 30 sek under for en 80 cm prøve. 
+Stoppes utskjæringen før sylinderen er full, kan man få svake soner i prøven.  
+Prøvetakeren må heller ikke roteres under selve prøveskjæringen. 
+ 
+Utskjæringen av prøven må stoppes når full prøvelengde er oppnådd , hvis ikke vil man 
+kunne få sammentrykning og forstyrrelse av prøven. I enkelte tilfeller kan det være 
+nødvendig å stoppe før full utskjæringslengde er nådd, for eksempel hvis man treffer  på 
+stein i massene. 
+ 
+Tas det prøver i vanskelige masser hvor det kan ventes tap av prøver (for eksempel 
+sensitive leirer), må prøvetakeren stå i ro i minst 5 -10 minutter (men prøvetakeren skal 
+ikke hvile på jorda) før den vris løs fra underliggende masser  og trekkes opp. I visse 
+tilfeller, for eksempel ved lagdelt leire, kan denne vridningen  føre til delvis tap av prøve. 
+Prøven kan trekkes av uten vridning ved at en løfter prøvetakeren forsiktig 1-2 cm, venter 
+i 2 -3 min utter, og deretter trekker prøvetaker en kontrollert til overflaten. Selve 
+opptrekkingen bør skje langsomt, og rykk, slag og vibrasjoner må unngås. 
+ 
+For å forenkle avskjæring og opptrekking kan det eventuelt pumpes inn vann under 
+prøvetakeren ved hjelp av en slange/rør festet utvendig til prøvetakeren. 
+ 
+Borhullet må tettes/forsegles etter at prøvetakingen er avsluttet. 
+ 
+4.3 Blokkprøvetaking 
+Blokkprøver kan skjæres ut fra bunnen eller veggene i en utgraving, eller det kan benyttes 
+spesialutviklet prøvetakingsutstyr. Denne teknikken kan gi mindre  forstyrrede prøver enn 
+ved konvesjonell stempelprøvetaking, spesielt ved prøvetaking i sensitive, magre leirer 
+(Ip<30%). 
+ 
+4.3.1 Håndskårne blokkprøver 
+Ved manuell blokkprøvetaking, skjæres prøvene ut fra veggene eller bunnen av grøfter og 
+sjakter, oftest som kuber med 15 – 30 cm sidekant. Kvaliteten på prøven er avhengig av  
+hvordan tilskjæringen utføres. Fig. 1 0 viser hvordan prøvetaking kan foretas, og hvordan 
+blokkprøvene kan emballeres. Prøver kan også tas ved hjelp av en kuttesylinder.  
+ 
+Prøven merkes med sted, dybde, prøveorientering, visuell klassifisering, dato og signatur 
+for operatør. 
+ 
+4.3.2 Sherbrooke 250 mm blokkprøvetaker 
+Sherbrooke blokkprøvetaker tar 250 mm x 350 mm blokkprøver, og kan benyttes ved 
+kvalitetsprøvetaking (anvendelsesklasse 1) i de fleste leirer (Lefebvre et al (1979)), se fig. 
+11. 
+ 
+Før selve prøvetakingen må det forbores ned til det nivå prøven skal tas fra, og borehullet 
+må stabiliseres. I det nivå prøvetakingen skal starte fra, må vegger og bunn i borehullet 
+
+ 
+23 
+ 
+være jevne og mest mulig uforstyrrede. Massene som løsrives mellom prøvetaker og vegg 
+i borhullet under utskjæring av prøven, fjernes ved spyling med vann eller tung væske. 
+Etter at prøven er skåret, kuttes prøven fra underlaget ved hjelp av et knivsystem som 
+utløses fra overflaten. Ved opptrekk hviler prøven på disse kutteknivene, men prøven har 
+ellers ingen ytre avstivning. Blokkprøven avstives, forsegles og merkes som beskrevet for 
+håndskårne blokkprøver, se kap. 4.3.1. 
+ 
+ 
+Figur 10. Fremgangsmåte ved håndskjæring og emballering av blokkprøver. 
+
+ 
+24 
+ 
+ 
+ 
+ 
+     
+     
+ 
+ 
+ 
+ 
+Figur 11. Sherbrooke 250 mm blokkprøvetaker.  
+ 
+4.4 Behandling av uforstyrrede prøver 
+4.4.1 Transport 
+Uforstyrrede prøver skal transporteres og lagres slik at de ikke utsettes for frost, sterk 
+varme, direkte sol, støt, vibrasjoner eller rystelser. Det anbefales å benytte støtd empende 
+transportkasse, spesielt ved transport av sensitive leirer og løs silt. 
+ 
+
+ 
+25 
+ 
+4.4.2 Lagring 
+Lagring av uforstyrrede leirprøver skal i prinsippet skje ved temperaturbetingelser 
+tilsvarende middeltemperaturen i bakken (ca. 7° C), og med høy relativ fuktigh et. Selv 
+under de beste lagringsforhold vil leirens egenskaper endre seg med tiden. Prøvene bør 
+derfor åpnes så fort som mulig, og helst så raskt som 1 -3 timer etter at prøvene er tatt 
+opp. Dette er normalt ikke praktisk mulig, men de bør i alle fall åpnes innen 2-4 uker etter 
+prøvetaking hvis prøvene skal  benyttes til bestemmelse av styrke - og deformasjons -
+egenskaper.  
+ 
+4.4.3 Utskyvning - behandling i laboratoriet 
+Det er vanlig å bestemme midlere densitet for hele prøven før den skyves ut fra 
+sylinderen. P røvesylinderens tilstand registreres og eventuelle skader på skjæregg eller 
+sylinder noteres. Skader som kan forverre prøvens tilstand ved utskyving skal om mulig 
+utbedres. 
+ 
+Når det benyttes stålsylinder, må forseglingen (slangeklemmer, gummipropp og 
+endepropp) fjernes før utskyvning slik at prøvens netto lengde kan bestemmes. Ved 
+fjerning av endeproppen er det viktig å utligne suget som vil oppstå ved uttrekking, ved 
+for eksempel å presse inn en stålstav mellom proppen og sylinderveggen. 
+ 
+Det er vanlig å f jerne litt av prøvematerialet i bunn av prøven slik at en oppnår sikker 
+styring av utskyvningsstempelet inn i sylinderen. 
+ 
+Prøveskyveren må være slik konstruert at den gir utskyvningsstempelet en jevn 
+bevegelse. Ved utskyving av prøver fra 54 mm plastsyli nder, der stempelet 
+(endeproppen) trekkes ut, er det viktig at uttrekking og utskyving er synkronisert slik at 
+det ikke oppstår strekk i prøven.  
+ 
+Utskyverbrettet må være i samme nivå som prøvestrengen, slik at det ikke oppstår skjær - 
+og/eller bøyepåkjenninger på prøven. Prøven bør skyves ut i samme retning som prøven 
+er tatt. Dette er spesielt viktig dersom sylinderen har indre klaring for å unngå ny 
+sammenpressing og etterfølgende svelling av prøvematerialet. For å unngå friksjon 
+mellom prøve og utskyverb rett skal det benyttes aluminiumsfolie som trekkes frem 
+synkront med prøveutskyvningen. Etter utskyvning må oppdelte prøver lagres i lufttett 
+beholder slik at de ikke tørkes ut eller tilføres væske. 
+ 
+4.5 Vurdering av prøvekvalitet 
+4.5.1 Generelt 
+Ved prøvet aking bør det etableres rutiner for tilbakemelding fra laboratoriet  til 
+feltpersonalet slik at prøvetakingsprosedyrer og eventuelt prøvetakerutstyr kan endres  
+hvis kvaliteten ikke er tilfredsstillende. Det finnes i denne sammenheng en rekke kriterier 
+for v urdering av prøvekvalitet  ved gjennomføring av vanlige forsøk i laboratoriet . Det  
+gis ikke her fullstendig gjennomgang av disse kriteriene, men noen aktuelle 
+observasjoner skal kort kommenteres. 
+ 
+
+ 
+26 
+ 
+Det enkleste er å knytte effekten av prøvekvalitet til resu ltat av konus - og enkle 
+trykkforsøk, ødometerforsøk og treaksialforsøk. Effekten avhenger av leirtype. I tillegg til 
+at magre og kvikke leirer er mest utsatt for prøveforstyrrelser er også effekten større for 
+slike leirer enn for plastiske og mindre sensitive leirer. Det er også en helt klar tendens til 
+økende effekt på prøvekvalitet med prøvedybden. 
+ 
+4.5.2 Visuell klassifisering av prøven 
+Umiddelbart etter utskyvning bør prøven inspiseres visuelt, og tegn på prøveforstyrrelse 
+må noteres. Dette kan være sår  i overflaten, sprekker eller omrørte soner, spesielt nær 
+endene av prøvestrengen, se fig. 12. De øverste og nederste delene av prøven (ca. 2·D)  
+må derfor ikke benyttes ved bestemmelse av prøvens mekaniske egenskaper. 
+ 
+Røntgengjennomlysning av prøven kan g i god indikasjon på prøvens kvalitet og 
+sammensetning. 
+ 
+ 
+ 
+ 
+Figur 12. Forstyrrede soner rundt prøvetaker ved vanlig stempelprøvetaking.  
+ 
+4.5.3 Vurdering av resultater fra enaksiale trykkforsøk 
+Formen på last - deformasjonskurven kan indikere forstyrret ma teriale hvis kurven viser 
+en jevnt stigende tendens, uten noe markert knekkpunkt ved lavt tøyningsnivå (”slapp”  
+oppførsel), se fig. 1 3a. Gode leirprøver med lite prøveforstyrrelse viser som regel klar 
+bruddindikasjon ved mindre enn 3% a ksialtøyning. Bruddindikasjon ved aksialtøyninger 
+på over 5% er vanligvis å anse som dårlige prøver med stor grad av prøveforstyrrelse. 
+
+ 
+27 
+ 
+ 
+Figur 13. Aktuelle indikasjoner på prøveforstyrrelse. 
+ 
+4.5.4 Vurdering av resultater fra ødometerforsøk 
+Ved vurdering av resultater fra et  ødometerforsøk, er det i første rekke material -
+oppførselen i det forkonsoliderte spenningsområdet som påvirkes av en eventuell 
+prøveforstyrrelse. Dette kan gi seg utslag i reduserte verdier for deformasjonsparametrene 
+i dette spenningsområdet, og bare svakt fremtredende egenskapsvariasjoner ved passering 
+av forkonsolideringsspenningen (σc`). Prøveforstyrrelse kan ofte gjøre det vanskelig å 
+tolke σc`. I tillegg kan prøveforstyrrelse gi jordmaterialet alt for lav stivhet for spenninger 
+under σc` og for høy stivhet for spenninger over σc`.  Typisk modulforløp for en forstyrret 
+og en uforstyrret leirprøve som indikerer dette forholdet er vist i fig. 13b og 14. En første, 
+og sterk indikasjon på prøveforstyrrelse er at ε -σ`, M -σ` eller C V-σ` kurvene gir lite 
+markert definisjon av forkonsolideringsspenningen. 
+ 
+Stor vannutpressing ved konsolidering av ødometerprøven til σ0` kan være indikasjon på 
+prøveforstyrrelse, se kap. 4.5.5. 
+ 
+
+ 
+28 
+ 
+  
+Figur 14. Eksempel på effekt av prøveforstyrrelse på ε-σ` og M-σ` kurver. 
+ 
+4.5.5 Vurdering av resultater fra treaksialforsøk 
+Ved drenert konsolidering av en mettet jordprøve til kjent spenningstilstand i et 
+treaksialforsøk vil det presses vann ut av prøven. Stor vannutpressing kan være en 
+indikasjon på prøveforstyrrelse, selv om det te er noe avhengig av jordarten, type 
+konsolidering, konsolideringsspenning og konsolideringstid. En mye brukt metode for å 
+vurdere prøvekvalitet er å se på endring i prøvens volum (εvol = ΔV/V 0 ) eller poretall 
+(Δe/e0) ved rekonsolidering til in -situ spenninger for utførelse av treaksialforsøk. Det er 
+indikasjoner på at endring i poretall er en bedre parameter å vurdere prøvekvalitet på enn 
+endring i volumtøyning (Lunne et al. 1999).  Tabell 6 viser et forslag basert på endring av 
+poretall. Kriteriene kan benyttes både for treaksialforsøk og ødometerforsøk. 
+ 
+Det gjøres oppmerksom på at kriteriene for prøvekvalitet som er vist i tabell 6 er basert 
+på tester av marine leirer med plastisitet mellom 6 - 43%, vanninnhold mellom 20 - 67%, 
+OCR mellom 1 - 6 og dybder under terreng på mellom 0 - 25 m. For jord med egenskaper 
+som faller utenfor ovennevnte verdier bør kriteriene som er vist i tabell 6 benyttes med 
+varsomhet.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Blokk 
+ϕ54 mm 
+Aksial effektivspenning, pa`(kPa) 
+
+
+ 
+29 
+ 
+ 
+Tabell 6. Veiledende kriterier for evaluering av prøvekvalitet basert på endring i poretall. 
+ 
+ 
+OCR 
+ 
+Δe/e04 
+Veldig god 
+til utmerket 
+God til 
+brukbar 
+Dårlig Veldig 
+dårlig 
+ 
+1–2 
+ 
+ 
+<0,04 
+ 
+0,04-0,07 
+ 
+0,07-0,14 
+ 
+>0,14 
+ 
+2–4 
+ 
+ 
+<0,03 
+ 
+0,03-0,05 
+ 
+0,05-0,10 
+ 
+>0,10 
+ 
+4–6 
+ 
+ 
+<0,02 
+ 
+0,02-0,035 
+ 
+0,035-0,07 
+ 
+>0,07 
+ 
+ 
+I tillegg til endring i prøvens volum og poretall vil også formen på spenningsstien, 
+spennings-tøyningsforløpet og oppnådde styrkeegenskaper gi en antydning om 
+prøvekvaliteten, se fig. 13c og 15. 
+ 
+ 
+  
+Figur 15. Eksempel på effekt av prøveforstyrrelse, CAUa forsøk fra Onsøy.  
+ 
+ 
+ 
+ 
+                                                 
+4 Krever γs for å kunne beregne poretallet 
+
+ 
+30 
+ 
+UTGITTE NGF - MELDINGER 
+ 
+Nr. 1:    Praktisering av SI.enheter innen geoteknikk 
+ 
+Nr. 2:   Veiledning for symboler og definisjoner i geoteknikk, presentasjon av 
+geotekniske undersøkelser 
+ 
+Nr. 3:   Veiledning for utførelse av dreiesondering 
+ 
+Nr. 4:   Veiledning for utførelse av vingeboring 
+ 
+Nr. 5:   Veiledning for utførelse av trykksondering 
+ 
+Nr. 6:   Veiledning for utførelse av grunnvannstand og poretrykk 
+ 
+Nr. 7:   Veiledning for utførelse av dreietrykksondering 
+ 
+Nr. 8:   Kommentarkoder ved bruk av elektronisk registreringsutstyr til geotekniske 
+feltundersøkelser 
+ 
+Nr. 9:   Veiledning for utførelse av totalsondering 
+ 
+Nr. 10: Beskrivelsestekster for grunnundersøkelser.  
+ 
+ 
+ 
+ 
+ 

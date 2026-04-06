@@ -12,6 +12,10 @@ Endpoints:
     POST /api/geotolk/sessions/<id>/interpretations       — Add an interpretation
     PUT  /api/geotolk/interpretations/<id>                — Update layer interpretation
     GET  /api/geotolk/training-data                       — Export all interpreted data
+
+Grasshopper integration:
+    GET  /api/geotolk/gh/boreholes                        — List interpreted boreholes for a project
+    GET  /api/geotolk/gh/borehole/<id>                    — Get single borehole with full layer data
 """
 
 import base64
@@ -19,11 +23,14 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 
+from sqlalchemy import or_
+
 from core.database import get_db_session, get_ml_session
 from core.models import (
     GeoTolkSession, GeoTolkInterpretation, GeoTolkMLTrainingData, RecentActivity,
+    Project, ProjectAccess,
 )
-from activities.geotolk.parsing.snd_parser import parse_snd_with_events
+from activities.geotolk.parsing.snd_parser import parse_snd_with_events, parse_snd_header_coords
 
 geotolk_bp = Blueprint('geotolk', __name__, url_prefix='/api/geotolk')
 
@@ -46,6 +53,8 @@ def parse_snd():
 
     try:
         parsed = parse_snd_with_events(content)
+        coords = parse_snd_header_coords(content)
+        parsed['coords'] = coords
         return jsonify({'success': True, 'data': parsed})
     except Exception as exc:
         return jsonify({'error': str(exc)}), 400
@@ -376,6 +385,171 @@ def list_project_sessions():
             ]
             result.append(d)
         return jsonify({'success': True, 'sessions': result})
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Grasshopper integration endpoints
+# ---------------------------------------------------------------------------
+
+def _resolve_project_id(db, project_name: str, username: str):
+    """Look up a project by name. If username is given, restrict to projects
+    the user has access to. Returns project_id or None."""
+    query = db.query(Project).filter(
+        Project.is_active == True,  # noqa: E712
+        Project.name == project_name,
+    )
+    if username:
+        query = query.filter(
+            or_(
+                Project.created_by == username,
+                Project.id.in_(
+                    db.query(ProjectAccess.project_id).filter(
+                        ProjectAccess.username == username
+                    )
+                ),
+            )
+        )
+    project = query.first()
+    return project.id if project else None
+
+
+@geotolk_bp.route('/gh/boreholes', methods=['GET'])
+def gh_list_boreholes():
+    """
+    Return all interpreted boreholes for a project with full layer data.
+
+    Designed as the single endpoint a Grasshopper component needs:
+    send project name + username, get back every borehole with its layers.
+
+    Query params:
+        project_name (str)           — Project name (required if no project_id)
+        project_id   (int)           — Project ID   (required if no project_name)
+        username     (str, optional) — Filter by interpreter username
+    """
+    project_id   = request.args.get('project_id', type=int)
+    project_name = request.args.get('project_name', type=str)
+    username     = request.args.get('username', type=str)
+
+    if not project_id and not project_name:
+        return jsonify({'error': 'project_name or project_id is required'}), 400
+
+    db = get_db_session()
+    try:
+        # Resolve project name → id when needed
+        if not project_id:
+            project_id = _resolve_project_id(db, project_name, username)
+            if not project_id:
+                return jsonify({'error': f'Project "{project_name}" not found'}), 404
+
+        query = (
+            db.query(GeoTolkInterpretation)
+            .join(GeoTolkSession, GeoTolkInterpretation.session_id == GeoTolkSession.id)
+            .filter(
+                GeoTolkSession.project_id == project_id,
+                GeoTolkInterpretation.status == 'interpreted',
+            )
+        )
+        if username:
+            query = query.filter(GeoTolkSession.username == username)
+
+        interps = query.order_by(GeoTolkInterpretation.filename).all()
+
+        boreholes = []
+        for interp in interps:
+            layers      = interp.get_layers()
+            parsed_data = interp.get_parsed_data()
+
+            # Extract coordinates from raw SND content or from parsed_data
+            coords = parsed_data.get('coords')
+            if not coords and interp.snd_raw_content:
+                coords = parse_snd_header_coords(interp.snd_raw_content)
+
+            boreholes.append({
+                'id':        interp.id,
+                'filename':  interp.filename,
+                'max_depth': interp.max_depth,
+                'num_layers': len(layers),
+                'x':         coords.get('x') if coords else None,
+                'y':         coords.get('y') if coords else None,
+                'z':         coords.get('z') if coords else None,
+                'layers':    layers,
+                'sounding': {
+                    'depth': parsed_data.get('depth', []),
+                    'c2':    parsed_data.get('c2', []),
+                    'c3':    parsed_data.get('c3', []),
+                    'c4':    parsed_data.get('c4', []),
+                },
+                'events': {
+                    'spyling': parsed_data.get('spyling', []),
+                    'slag':    parsed_data.get('slag', []),
+                },
+            })
+
+        return jsonify({
+            'success':    True,
+            'project_id': project_id,
+            'count':      len(boreholes),
+            'boreholes':  boreholes,
+        })
+    finally:
+        db.close()
+
+
+@geotolk_bp.route('/gh/borehole/<int:interp_id>', methods=['GET'])
+def gh_get_borehole(interp_id: int):
+    """
+    Get full borehole data with layers — designed for Grasshopper consumption.
+
+    The layer list is ordered top-to-bottom and each layer contains:
+        type  — soil type string (e.g. "leire", "sand", "fjell", "morene", etc.)
+        start — layer top depth [m]
+        end   — layer bottom depth [m]
+    """
+    db = get_db_session()
+    try:
+        interp = (
+            db.query(GeoTolkInterpretation)
+            .filter(GeoTolkInterpretation.id == interp_id)
+            .first()
+        )
+        if not interp:
+            return jsonify({'error': 'Borehole not found'}), 404
+
+        if interp.status != 'interpreted':
+            return jsonify({'error': 'Borehole has not been interpreted yet'}), 400
+
+        layers      = interp.get_layers()
+        parsed_data = interp.get_parsed_data()
+
+        # Extract coordinates from raw SND content or from parsed_data
+        coords = parsed_data.get('coords')
+        if not coords and interp.snd_raw_content:
+            coords = parse_snd_header_coords(interp.snd_raw_content)
+
+        return jsonify({
+            'success': True,
+            'borehole': {
+                'id':         interp.id,
+                'filename':   interp.filename,
+                'max_depth':  interp.max_depth,
+                'x':          coords.get('x') if coords else None,
+                'y':          coords.get('y') if coords else None,
+                'z':          coords.get('z') if coords else None,
+                'layers':     layers,
+                'sounding': {
+                    'depth': parsed_data.get('depth', []),
+                    'c2':    parsed_data.get('c2', []),
+                    'c3':    parsed_data.get('c3', []),
+                    'c4':    parsed_data.get('c4', []),
+                },
+                'events': {
+                    'spyling': parsed_data.get('spyling', []),
+                    'slag':    parsed_data.get('slag', []),
+                },
+            },
+        })
     finally:
         db.close()
 

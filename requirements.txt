@@ -3,6 +3,7 @@
 # Backend
 flask>=2.3.0
 flask-cors>=4.0.0
+flasgger>=0.9.7
 sqlalchemy>=2.0.0
 openpyxl>=3.1.0        # Excel report generation
 gunicorn>=21.2.0       # Production WSGI server (Azure App Service)
@@ -30,6 +31,7 @@ azure-identity>=1.14.0   # Azure credential auth
 faiss-cpu>=1.7.0         # Vector similarity search
 numpy>=1.24.0            # Numerical operations
 pypdf>=4.0.0             # PDF text extraction
+pymupdf>=1.24.0          # PDF text extraction via fitz (preferred)
 
 # GeoGPT — Azure AI Search (RAG)
 azure-search-documents>=11.4.0  # Azure AI Search SDK

@@ -12,6 +12,7 @@ Database models and connection helpers live in backend/core/.
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flasgger import Swagger
 
 from core.database import init_db
 from activities.plaxis.routes        import plaxis_bp
@@ -20,6 +21,7 @@ from activities.projects.routes      import projects_bp
 from activities.modeling.routes       import modeling_bp
 from activities.plaxis_agent.routes  import plaxis_agent_bp
 from activities.geogpt.routes        import geogpt_bp
+from activities.standarder.routes    import standarder_bp
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -35,6 +37,72 @@ app.register_blueprint(projects_bp)
 app.register_blueprint(modeling_bp)
 app.register_blueprint(plaxis_agent_bp)
 app.register_blueprint(geogpt_bp)
+app.register_blueprint(standarder_bp)
+
+# ---------------------------------------------------------------------------
+# Swagger / OpenAPI documentation
+# ---------------------------------------------------------------------------
+# Auto-generate a minimal OpenAPI spec from all registered routes so that
+# every endpoint shows up in Swagger UI without needing YAML docstrings.
+
+_BLUEPRINT_TAGS = {
+    'plaxis': 'Plaxis',
+    'geotolk': 'GeoTolk',
+    'projects': 'Projects',
+    'modeling': 'Modeling',
+    'plaxis_agent': 'Plaxis Agent',
+    'geogpt': 'GeoGPT',
+    'standarder': 'Standarder',
+}
+
+def _build_paths(app_instance):
+    """Build OpenAPI paths dict from Flask URL rules."""
+    paths: dict = {}
+    ignored = {'static', 'flasgger.static', 'flasgger.apispec_1'}
+    for rule in app_instance.url_map.iter_rules():
+        if rule.endpoint in ignored or rule.rule.startswith('/flasgger'):
+            continue
+        # Convert Flask <param> to OpenAPI {param}
+        path = rule.rule
+        parameters = []
+        for arg in rule.arguments:
+            path = path.replace(f'<int:{arg}>', f'{{{arg}}}')
+            path = path.replace(f'<path:{arg}>', f'{{{arg}}}')
+            path = path.replace(f'<{arg}>', f'{{{arg}}}')
+            parameters.append({
+                'name': arg, 'in': 'path', 'required': True, 'type': 'string',
+            })
+        if path not in paths:
+            paths[path] = {}
+        # Determine tag from blueprint
+        view_func = app_instance.view_functions.get(rule.endpoint)
+        tag = 'System'
+        if '.' in rule.endpoint:
+            bp_name = rule.endpoint.rsplit('.', 1)[0]
+            tag = _BLUEPRINT_TAGS.get(bp_name, bp_name)
+        summary = (view_func.__doc__ or '').strip().split('\n')[0] if view_func else ''
+        for method in (rule.methods - {'OPTIONS', 'HEAD'}):
+            paths[path][method.lower()] = {
+                'tags': [tag],
+                'summary': summary or rule.endpoint,
+                'parameters': parameters,
+                'responses': {'200': {'description': 'Success'}},
+            }
+    return paths
+
+with app.app_context():
+    _paths = _build_paths(app)
+
+Swagger(app, template={
+    'info': {
+        'title': 'RamGAP API',
+        'description': 'Geoteknisk ingeniørplattform — Plaxis, GeoTolk, GeoGPT, Modellering',
+        'version': '0.1.0',
+    },
+    'basePath': '/',
+    'schemes': ['http', 'https'],
+    'paths': _paths,
+})
 
 # Initialize database on startup.
 # Flask debug mode spawns two processes (supervisor + worker). Guard against

@@ -394,3 +394,63 @@ class APIClient:
             'output_port': output_port,
             'output_password': output_password,
         }, timeout=15)
+
+    # ------------------------------------------------------------------
+    # Standarder
+    # ------------------------------------------------------------------
+
+    def upload_standard(self, file_bytes: bytes, filename: str,
+                        name: str = '') -> dict:
+        try:
+            r = requests.post(
+                f'{self.base_url}/api/standarder/upload',
+                files={'file': (filename, file_bytes, 'application/pdf')},
+                data={'name': name} if name else {},
+                timeout=120,
+            )
+            return r.json() if r.ok else {'error': r.text}
+        except requests.RequestException as exc:
+            return {'error': str(exc)}
+
+    def get_standards(self) -> list:
+        result = self._get('/api/standarder/documents')
+        return result.get('documents', [])
+
+    def delete_standard(self, doc_id: str) -> dict:
+        return self._delete(f'/api/standarder/documents/{doc_id}')
+
+    def get_standard_sections(self, doc_id: str) -> list:
+        result = self._get(f'/api/standarder/documents/{doc_id}/sections')
+        return result.get('sections', [])
+
+    def search_standards(self, query: str, doc_id: str = '') -> list:
+        params: dict = {'q': query}
+        if doc_id:
+            params['doc_id'] = doc_id
+        result = self._get('/api/standarder/search', params=params)
+        return result.get('results', [])
+
+    def check_standard_compliance(self, doc_id: str, project_summary: str,
+                                   section_ids: list = None) -> dict:
+        return self._post('/api/standarder/check', {
+            'doc_id': doc_id,
+            'project_summary': project_summary,
+            'section_ids': section_ids or [],
+        }, timeout=120)
+
+    def explain_standard_section(self, doc_id: str, section_id: str,
+                                  project_context: str = '') -> dict:
+        return self._post('/api/standarder/explain', {
+            'doc_id': doc_id,
+            'section_id': section_id,
+            'project_context': project_context,
+        }, timeout=60)
+
+    def reparse_standard(self, doc_id: str) -> dict:
+        return self._post(f'/api/standarder/documents/{doc_id}/reparse',
+                          timeout=120)
+
+    def extract_report_text(self, file_path: str) -> dict:
+        return self._post('/api/standarder/extract-report', {
+            'file_path': file_path,
+        }, timeout=60)
