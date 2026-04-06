@@ -154,9 +154,12 @@ with tabs[0]:
                 result = api._post('/api/geogpt/chat', payload={'question': prompt})
 
             if 'error' in result:
-                answer_text = "Beklager, noe gikk galt. Prøv igjen senere."
+                err_detail = result.get('error', 'Ukjent feil')
+                answer_text = "Beklager, noe gikk galt med GeoGPT."
                 st.error(answer_text)
-                st.session_state.geogpt_messages.append({"role": "assistant", "content": answer_text})
+                st.warning(f"**Feildetaljer:** {err_detail}")
+                st.caption(f"Backend-URL: `{api.base_url}`")
+                st.session_state.geogpt_messages.append({"role": "assistant", "content": f"{answer_text}\n\n_Feil: {err_detail}_"})
             else:
                 answer_text = result.get('answer', 'Ingen svar funnet.')
                 st.markdown(answer_text)
