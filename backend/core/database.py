@@ -27,34 +27,53 @@ load_dotenv(override=True)
 # ---------------------------------------------------------------------------
 # Main database (projects, sessions, logs, interpretations) — Azure PostgreSQL
 # ---------------------------------------------------------------------------
-DATABASE_URL: str = os.environ['DATABASE_URL']
+DATABASE_URL: str = os.environ.get('DATABASE_URL', '')
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={'connect_timeout': 5},
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    echo=False,
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Session      = scoped_session(SessionLocal)
+engine = None
+SessionLocal = None
+Session = None
 
 # ---------------------------------------------------------------------------
 # ML training database (Azure PostgreSQL — dedicated for ML data)
 # ---------------------------------------------------------------------------
-ML_DATABASE_URL: str = os.environ['ML_DATABASE_URL']
+ML_DATABASE_URL: str = os.environ.get('ML_DATABASE_URL', '')
 
-ml_engine = create_engine(
-    ML_DATABASE_URL,
-    connect_args={'connect_timeout': 10},
-    pool_size=3,
-    max_overflow=5,
-    pool_pre_ping=True,
-    echo=False,
-)
-MLSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=ml_engine)
-MLSession      = scoped_session(MLSessionLocal)
+ml_engine = None
+MLSessionLocal = None
+MLSession = None
+
+
+def _ensure_engines():
+    """Lazily create database engines on first use (avoids crash at import when env vars are missing)."""
+    global engine, SessionLocal, Session, ml_engine, MLSessionLocal, MLSession
+
+    if engine is None:
+        if not DATABASE_URL:
+            raise RuntimeError('DATABASE_URL environment variable is not set')
+        engine = create_engine(
+            DATABASE_URL,
+            connect_args={'connect_timeout': 5},
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+            echo=False,
+        )
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        Session = scoped_session(SessionLocal)
+
+    if ml_engine is None:
+        if not ML_DATABASE_URL:
+            raise RuntimeError('ML_DATABASE_URL environment variable is not set')
+        ml_engine = create_engine(
+            ML_DATABASE_URL,
+            connect_args={'connect_timeout': 10},
+            pool_size=3,
+            max_overflow=5,
+            pool_pre_ping=True,
+            echo=False,
+        )
+        MLSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=ml_engine)
+        MLSession = scoped_session(MLSessionLocal)
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +83,7 @@ MLSession      = scoped_session(MLSessionLocal)
 def init_db() -> None:
     """Create all tables in both main and ML databases."""
     from sqlalchemy import inspect as sa_inspect, text
+    _ensure_engines()
 
     # --- Main database ---
     Base.metadata.create_all(bind=engine)
@@ -113,11 +133,13 @@ def init_db() -> None:
 
 def get_db_session():
     """Return a main database session. Caller is responsible for closing it."""
+    _ensure_engines()
     return Session()
 
 
 def get_ml_session():
     """Return an ML database session."""
+    _ensure_engines()
     return MLSession()
 
 
@@ -129,6 +151,7 @@ def close_db_session(db) -> None:
 
 def get_db():
     """Generator yielding a session (for use with dependency injection)."""
+    _ensure_engines()
     db = Session()
     try:
         yield db
