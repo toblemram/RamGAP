@@ -24,11 +24,7 @@ import streamlit as st
 from folium.plugins import Fullscreen, MarkerCluster, MiniMap, MousePosition
 from pyproj import Transformer
 
-# Ensure snd_parser is importable from sandbox/GeoArc/
-_SANDBOX_DIR = Path(__file__).resolve().parent.parent.parent / "sandbox" / "GeoArc"
-if str(_SANDBOX_DIR) not in sys.path:
-    sys.path.insert(0, str(_SANDBOX_DIR))
-from snd_parser import parse_snd_full  # noqa: E402
+from components.snd_parser import parse_snd_full
 
 # ---------------------------------------------------------------------------
 # CRS options (Norwegian projected coordinate systems)
