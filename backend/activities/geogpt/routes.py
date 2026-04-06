@@ -684,3 +684,16 @@ def admin_check():
     """Check if a user has admin access to GeoGPT."""
     username = request.args.get('username', '')
     return jsonify({'is_admin': _is_admin(username)})
+
+
+@geogpt_bp.route('/debug', methods=['GET'])
+def debug_info():
+    """Debug endpoint — shows GeoGPT configuration status."""
+    return jsonify({
+        'azure_openai_configured': bool(_AZURE_ENDPOINT and _AZURE_KEY),
+        'azure_search_configured': bool(_SEARCH_ENDPOINT and _SEARCH_KEY),
+        'search_index': _SEARCH_INDEX,
+        'deployment': _DEPLOYMENT,
+        'blob_configured': bool(_BLOB_CONN_STR),
+        'knowledge_file_exists': os.path.exists(_KNOWLEDGE_FILE),
+    })

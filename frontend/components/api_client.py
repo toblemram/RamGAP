@@ -33,10 +33,13 @@ class APIClient:
 
     def _post(self, path: str, payload: dict = None, timeout: int = None) -> dict:
         try:
-            r = requests.post(f'{self.base_url}{path}', json=payload, timeout=timeout)
-            return r.json() if r.ok else {'error': r.text}
+            url = f'{self.base_url}{path}'
+            r = requests.post(url, json=payload, timeout=timeout)
+            if r.ok:
+                return r.json()
+            return {'error': f'HTTP {r.status_code} fra {url}: {r.text[:500]}'}
         except requests.RequestException as exc:
-            return {'error': str(exc)}
+            return {'error': f'{exc} (URL: {self.base_url}{path})'}
 
     def _delete(self, path: str, params: dict = None, timeout: int = None) -> dict:
         try:
