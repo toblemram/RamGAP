@@ -20,8 +20,26 @@ from activities.geotolk.routes       import geotolk_bp
 from activities.projects.routes      import projects_bp
 from activities.modeling.routes       import modeling_bp
 from activities.plaxis_agent.routes  import plaxis_agent_bp
-from activities.geogpt.routes        import geogpt_bp
-from activities.standarder.routes    import standarder_bp
+
+# These blueprints have extra dependencies — import gracefully so the
+# rest of the backend still works if a package is missing on Azure.
+_blueprint_errors: list[str] = []
+
+try:
+    from activities.geogpt.routes import geogpt_bp
+except Exception as _e:
+    geogpt_bp = None
+    _blueprint_errors.append(f'geogpt: {_e}')
+
+try:
+    from activities.standarder.routes import standarder_bp
+except Exception as _e:
+    standarder_bp = None
+    _blueprint_errors.append(f'standarder: {_e}')
+
+if _blueprint_errors:
+    for _err in _blueprint_errors:
+        print(f'WARNING: Blueprint import failed — {_err}')
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -36,8 +54,10 @@ app.register_blueprint(geotolk_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(modeling_bp)
 app.register_blueprint(plaxis_agent_bp)
-app.register_blueprint(geogpt_bp)
-app.register_blueprint(standarder_bp)
+if geogpt_bp:
+    app.register_blueprint(geogpt_bp)
+if standarder_bp:
+    app.register_blueprint(standarder_bp)
 
 # ---------------------------------------------------------------------------
 # Swagger / OpenAPI documentation
@@ -130,7 +150,13 @@ def health_check():
 @app.route('/api/status', methods=['GET'])
 def get_status():
     """Application status."""
-    return jsonify({'status': 'ok', 'ready': True})
+    registered = sorted({r.rule for r in app.url_map.iter_rules() if r.rule.startswith('/api/')})
+    return jsonify({
+        'status': 'ok',
+        'ready': True,
+        'blueprint_errors': _blueprint_errors,
+        'registered_api_routes': registered,
+    })
 
 
 # Legacy placeholder (kept until all frontends are updated)
