@@ -63,11 +63,22 @@ def require_username() -> str:
     if name:
         return name
 
-    st.info("👋 Skriv inn ditt navn. Bokmerke URL-en etterpå for å slippe neste gang.")
+    st.markdown("## Velkommen til RamGAP! 👋")
+    st.markdown(
+        "RamGAP er et internt verktøy for geotekniske analyser, tolking og modellering.\n\n"
+        "**Har du spørsmål?** Ta kontakt med:\n"
+        "- **Tobias Lemming**\n"
+        "- **Kristoffer Aamodt**\n\n"
+        "Vil du gi tilbakemeldinger, forslag eller melde inn en feil? "
+        "Bruk **knappen til venstre** i sidemenyen."
+    )
+    st.divider()
     col1, col2 = st.columns([3, 1])
     entered = col1.text_input("Navn / brukernavn", key="_username_input",
-                              placeholder="f.eks. TBLM")
-    if col2.button("OK", type="primary") and entered.strip():
+                              placeholder="f.eks. TBLM",
+                              label_visibility="collapsed")
+    col1.caption("Bokmerke URL-en etterpå for å slippe å skrive inn neste gang.")
+    if col2.button("Logg inn", type="primary") and entered.strip():
         clean = _clean(entered)
         if clean:
             st.session_state["_username"] = clean
