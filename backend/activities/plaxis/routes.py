@@ -4,15 +4,18 @@ Plaxis Routes
 =============
 Flask Blueprint with all REST API endpoints for the Plaxis activity.
 
-Endpoints:
-    POST /api/plaxis/connect              — Connect to a running Plaxis session
-    POST /api/plaxis/disconnect           — Disconnect
-    GET  /api/plaxis/status               — Check connection status
-    GET  /api/plaxis/model-info           — Fetch phases and structure names
-    POST /api/plaxis/run                  — Run a result-extraction job
-    GET  /api/plaxis/calculations         — List saved calculation records
+All Plaxis computation goes through the job queue (PlaxisWorker):
+    POST /api/plaxis/jobs                 — Submit a job (frontend → worker)
+    GET  /api/plaxis/jobs/<id>            — Poll job status (frontend polling)
+    GET  /api/plaxis/jobs/poll            — Claim next pending job (worker polling)
+    POST /api/plaxis/jobs/<id>/complete   — Submit result (worker → backend)
+
+Other endpoints:
+    POST /api/plaxis/ai-quality-check     — AI model review
+    POST /api/plaxis/ai-report            — AI calculation report
+    GET/POST /api/plaxis/calculations     — Saved calculation history
     GET  /api/plaxis/calculations/<id>    — Get a specific calculation
-    POST /api/plaxis/calculations/<id>/rerun — Re-run a previous calculation
+    POST /api/plaxis/calculations/<id>/rerun — Re-run via job queue
 """
 
 import json
@@ -23,14 +26,15 @@ from flask import Blueprint, jsonify, request
 
 from config import PLAXIS_HOST
 from core.database import get_db_session
-from core.models import PlaxisCalculation
-from activities.plaxis.runner.runner import run_plaxis_extraction
+from core.models import PlaxisCalculation, PlaxisJob
+from activities.plaxis.script_builder import (
+    build_connect_script,
+    build_run_script,
+    build_parametric_script,
+    build_water_sensitivity_script,
+)
 
 plaxis_bp = Blueprint('plaxis', __name__, url_prefix='/api/plaxis')
-
-# In-process session store (one entry per user session).
-# Replace with Redis or a DB table when multi-worker deployment is needed.
-_plaxis_sessions: Dict[str, Any] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -51,280 +55,6 @@ def _get_ai_client():
 def _get_deployment():
     from config import AZURE_OPENAI_DEPLOYMENT
     return AZURE_OPENAI_DEPLOYMENT or 'gpt-4o'
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Connection
-# ---------------------------------------------------------------------------
-
-@plaxis_bp.route('/connect', methods=['POST'])
-def connect():
-    """Connect to a running Plaxis Input server."""
-    data       = request.get_json() or {}
-    port       = data.get('port')
-    password   = data.get('password')
-    host       = data.get('host') or PLAXIS_HOST
-    session_id = data.get('session_id', 'default')
-
-    if not port or not password:
-        return jsonify({'error': 'port and password are required'}), 400
-
-    try:
-        port = int(port)
-    except ValueError:
-        return jsonify({'error': 'port must be a number'}), 400
-
-    try:
-        from plxscripting.easy import new_server
-        s_i, g_i = new_server(host, port, password=password)
-        _plaxis_sessions[session_id] = {
-            'port': port, 'password': password, 'host': host,
-            's_i': s_i, 'g_i': g_i, 'connected': True,
-        }
-        return jsonify({'success': True, 'message': f'Connected to Plaxis at {host}:{port}.', 'session_id': session_id})
-    except ImportError:
-        return jsonify({'success': False, 'error': 'plxscripting is not installed on the server. Install it with: pip install plxscripting'}), 500
-    except Exception as exc:
-        return jsonify({'success': False, 'error': str(exc)}), 400
-
-
-@plaxis_bp.route('/disconnect', methods=['POST'])
-def disconnect():
-    """Remove a Plaxis session."""
-    data       = request.get_json() or {}
-    session_id = data.get('session_id', 'default')
-    _plaxis_sessions.pop(session_id, None)
-    return jsonify({'success': True, 'message': 'Disconnected.'})
-
-
-@plaxis_bp.route('/status', methods=['GET'])
-def status():
-    """Return the connection status for the given session."""
-    session_id = request.args.get('session_id', 'default')
-    session    = _plaxis_sessions.get(session_id)
-    if session:
-        return jsonify({'connected': True, 'port': session['port']})
-    return jsonify({'connected': False})
-
-
-# ---------------------------------------------------------------------------
-# Model info
-# ---------------------------------------------------------------------------
-
-@plaxis_bp.route('/model-info', methods=['GET'])
-def model_info():
-    """Return structures and phases from the open Plaxis model."""
-    session_id = request.args.get('session_id', 'default')
-    session    = _plaxis_sessions.get(session_id)
-
-    if not session or not session.get('g_i'):
-        return jsonify({
-            'success': False,
-            'error': 'Not connected to Plaxis. Connect first via the connection panel.',
-        }), 400
-
-    g_i = session['g_i']
-    try:
-        from activities.plaxis.extraction.model_info import extract_model_info
-        info = extract_model_info(g_i)
-        info.update({'success': True})
-        return jsonify(info)
-    except Exception as exc:
-        return jsonify({'success': False, 'error': str(exc)}), 500
-
-
-# ---------------------------------------------------------------------------
-# Run extraction
-# ---------------------------------------------------------------------------
-
-@plaxis_bp.route('/run', methods=['POST'])
-def run_extraction():
-    """Run a Plaxis result-extraction job and save the record to the database."""
-    data       = request.get_json() or {}
-    session_id = data.get('session_id', 'default')
-    job        = data.get('job')
-
-    if not job:
-        return jsonify({'error': 'job configuration is required'}), 400
-
-    input_port     = data.get('input_port')
-    input_password = data.get('input_password')
-    output_port    = data.get('output_port')
-    output_password= data.get('output_password')
-
-    # Fall back to stored session values
-    session = _plaxis_sessions.get(session_id, {})
-    input_port     = input_port     or session.get('port')
-    input_password = input_password or session.get('password')
-    host           = data.get('host') or session.get('host') or PLAXIS_HOST
-
-    if not input_port or not input_password:
-        return jsonify({'error': 'Plaxis port and password are required. Connect first.'}), 400
-
-    project_id    = data.get('project_id')
-    activity_name = data.get('activity_name', 'Plaxis calculation')
-
-    db = get_db_session()
-    calc = PlaxisCalculation(
-        project_id=project_id, username=session_id,
-        activity_name=activity_name, status='started',
-        input_port=input_port, output_port=output_port,
-        output_path=job.get('resultsPath', {}).get('path'),
-    )
-    structures = job.get('structures', {})
-    calc.set_structures(
-        structures.get('plates', []) + structures.get('embedded_beams', []),
-        structures.get('node_to_node_anchors', []) + structures.get('fixed_end_anchors', []),
-    )
-    analysis = job.get('analysis', {})
-    calc.set_phases(
-        analysis.get('capacity_check', {}).get('phases', []),
-        analysis.get('msf', {}).get('phases', []),
-        analysis.get('displacement', {}).get('phases', []),
-    )
-    calc.displacement_component = analysis.get('displacement', {}).get('component', 'Ux')
-    db.add(calc)
-    db.commit()
-    calc_id = calc.id
-
-    try:
-        calc.status = 'running'
-        db.commit()
-
-        results = run_plaxis_extraction(
-            host=host,
-            input_port=input_port,
-            input_password=input_password,
-            output_port=output_port,
-            output_password=output_password,
-            job=job,
-        )
-
-        if results.get('success'):
-            calc.status       = 'completed'
-            calc.output_file  = results.get('output_file')
-            calc.results_json = json.dumps({
-                'capacity':     results.get('capacity', {}),
-                'msf':          results.get('msf', {}),
-                'displacement': results.get('displacement', {}),
-            })
-        else:
-            calc.status        = 'failed'
-            calc.error_message = results.get('error') or '; '.join(results.get('errors', []))
-
-        calc.completed_at = datetime.utcnow()
-        db.commit()
-        results['calculation_id'] = calc_id
-        return jsonify(results)
-
-    except Exception as exc:
-        calc.status        = 'failed'
-        calc.error_message = str(exc)
-        calc.completed_at  = datetime.utcnow()
-        db.commit()
-        return jsonify({'success': False, 'calculation_id': calc_id, 'error': str(exc)}), 500
-    finally:
-        db.close()
-
-
-# ---------------------------------------------------------------------------
-# Parametric run (single iteration)
-# ---------------------------------------------------------------------------
-
-@plaxis_bp.route('/parametric-run', methods=['POST'])
-def parametric_run():
-    """Execute one iteration of a parametric study.
-
-    Modifies the KS soil's Su (and optionally gamma), optionally moves the
-    sheet pile bottom, runs calculations, and extracts FoS / displacement /
-    capacity for the requested phases.  Returns a single-row result dict.
-
-    The endpoint is stateless per-call — the frontend loops over combos and
-    calls this endpoint once per combination.
-    """
-    data = request.get_json() or {}
-
-    session_id = data.get('session_id', 'default')
-    session    = _plaxis_sessions.get(session_id, {})
-    g_i = session.get('g_i')
-
-    if not g_i:
-        return jsonify({'success': False, 'error': 'Not connected to Plaxis. Connect first.'}), 400
-    host = data.get('host') or session.get('host') or PLAXIS_HOST
-
-    ks_soil   = data.get('ks_soil')
-    plate     = data.get('plate')
-    su_val    = data.get('su')
-    depth     = data.get('depth')
-    fos_phase = data.get('fos_phase')
-    disp_phase = data.get('disp_phase')
-    cap_phase  = data.get('cap_phase')
-
-    try:
-        from activities.plaxis.parametric.runner import run_single_parametric
-        result = run_single_parametric(
-            g_i=g_i,
-            s_i=session.get('s_i'),
-            ks_soil_name=ks_soil,
-            plate_name=plate,
-            su=su_val,
-            depth=depth,
-            fos_phase=fos_phase,
-            disp_phase=disp_phase,
-            cap_phase=cap_phase,
-            output_port=data.get('output_port'),
-            output_password=data.get('output_password'),
-            host=host,
-        )
-        return jsonify(result)
-    except Exception as exc:
-        return jsonify({'success': False, 'error': str(exc)}), 500
-
-
-# ---------------------------------------------------------------------------
-# Water-level sensitivity (single iteration)
-# ---------------------------------------------------------------------------
-
-@plaxis_bp.route('/water-sensitivity-run', methods=['POST'])
-def water_sensitivity_run():
-    """Execute one iteration of a water-level sensitivity study.
-
-    Sets the borehole water head to the requested level, runs calculations,
-    and extracts FoS / displacement / capacity for the requested phases.
-    """
-    data = request.get_json() or {}
-
-    session_id = data.get('session_id', 'default')
-    session    = _plaxis_sessions.get(session_id, {})
-    g_i = session.get('g_i')
-    host = data.get('host') or session.get('host') or PLAXIS_HOST
-
-    water_level = data.get('water_level')
-    if water_level is None:
-        return jsonify({'error': 'water_level is required'}), 400
-
-    if not g_i:
-        return jsonify({'success': False, 'error': 'Not connected to Plaxis. Connect first.'}), 400
-    try:
-        from activities.plaxis.parametric.water_sensitivity import run_single_water_level
-        result = run_single_water_level(
-            g_i=g_i,
-            s_i=session.get('s_i'),
-            water_level=float(water_level),
-            plate_name=data.get('plate'),
-            fos_phase=data.get('fos_phase'),
-            disp_phase=data.get('disp_phase'),
-            cap_phase=data.get('cap_phase'),
-            output_port=data.get('output_port'),
-            output_password=data.get('output_password'),
-            host=host,
-        )
-        return jsonify(result)
-    except Exception as exc:
-        return jsonify({'success': False, 'error': str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------
@@ -595,22 +325,165 @@ def rerun_calculation(calc_id: int):
             },
             'resultsPath': {'path': original.output_path or data.get('output_path', '')},
         }
-        db.close()
 
-        results = run_plaxis_extraction(
-            input_port=input_port,
-            input_password=input_password,
-            output_port=output_port,
-            output_password=output_password,
-            job=job,
+        host = data.get('host') or PLAXIS_HOST
+        code = build_run_script(
+            host, int(input_port), input_password,
+            output_port, output_password or input_password,
+            job,
         )
-        return jsonify(results)
+        plaxis_job = PlaxisJob(
+            session_id=session_id,
+            job_type='run',
+            code=code,
+            status='pending',
+        )
+        db.add(plaxis_job)
+        db.commit()
+        return jsonify({
+            'success': True,
+            'job_id': plaxis_job.id,
+            'status': 'pending',
+            'message': 'Re-run submitted to PlaxisWorker job queue.',
+        })
 
     except Exception as exc:
+        db.rollback()
         return jsonify({'error': str(exc)}), 500
     finally:
         try:
             db.close()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Job queue  (PlaxisWorker communication)
+# ---------------------------------------------------------------------------
+
+# Map from frontend job_type to a script-builder call
+_BUILDERS = {
+    'connect':           lambda d: build_connect_script(
+                             d['host'], int(d['port']), d['password']),
+    'run':               lambda d: build_run_script(
+                             d['host'], int(d['port']), d['password'],
+                             d.get('output_port'), d.get('output_password'),
+                             d['job']),
+    'parametric':        lambda d: build_parametric_script(
+                             d['host'], int(d['port']), d['password'],
+                             d.get('output_port'), d.get('output_password'),
+                             d['ks_soil'], d['plate'], float(d['su']),
+                             d.get('depth'), d.get('fos_phase'),
+                             d.get('disp_phase'), d.get('cap_phase')),
+    'water_sensitivity': lambda d: build_water_sensitivity_script(
+                             d['host'], int(d['port']), d['password'],
+                             d.get('output_port'), d.get('output_password'),
+                             float(d['water_level']), d.get('plate'),
+                             d.get('fos_phase'), d.get('disp_phase'),
+                             d.get('cap_phase')),
+}
+
+
+@plaxis_bp.route('/jobs', methods=['POST'])
+def submit_job():
+    """Frontend submits a job. Backend generates the script and inserts it into the DB."""
+    data = request.get_json() or {}
+    job_type   = data.get('job_type')
+    session_id = data.get('session_id', 'default')
+
+    if not job_type or job_type not in _BUILDERS:
+        return jsonify({'error': f'Invalid job_type. Must be one of: {list(_BUILDERS)}'}), 400
+
+    try:
+        code = _BUILDERS[job_type](data)
+    except KeyError as exc:
+        return jsonify({'error': f'Missing required parameter: {exc}'}), 400
+
+    db = get_db_session()
+    try:
+        job = PlaxisJob(
+            session_id=session_id,
+            job_type=job_type,
+            code=code,
+            status='pending',
+        )
+        db.add(job)
+        db.commit()
+        return jsonify({'success': True, 'job_id': job.id, 'status': 'pending'})
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        db.close()
+
+
+@plaxis_bp.route('/jobs/<int:job_id>', methods=['GET'])
+def get_job(job_id: int):
+    """Frontend polls for job status / result."""
+    db = get_db_session()
+    try:
+        job = db.query(PlaxisJob).filter(PlaxisJob.id == job_id).first()
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+        return jsonify({'success': True, 'job': job.to_dict()})
+    finally:
+        db.close()
+
+
+@plaxis_bp.route('/jobs/poll', methods=['GET'])
+def poll_job():
+    """PlaxisWorker polls for the next pending job. Returns oldest pending job."""
+    db = get_db_session()
+    try:
+        job = (db.query(PlaxisJob)
+               .filter(PlaxisJob.status == 'pending')
+               .order_by(PlaxisJob.created_at.asc())
+               .first())
+        if not job:
+            return jsonify({'success': True, 'job': None})
+        # Mark as running
+        job.status = 'running'
+        db.commit()
+        return jsonify({
+            'success': True,
+            'job': {
+                'id': job.id,
+                'job_type': job.job_type,
+                'code': job.code,
+            },
+        })
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        db.close()
+
+
+@plaxis_bp.route('/jobs/<int:job_id>/complete', methods=['POST'])
+def complete_job(job_id: int):
+    """PlaxisWorker submits the result of a job."""
+    data = request.get_json() or {}
+    db = get_db_session()
+    try:
+        job = db.query(PlaxisJob).filter(PlaxisJob.id == job_id).first()
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+
+        result = data.get('result')
+        error  = data.get('error')
+
+        if error:
+            job.status = 'failed'
+            job.error  = str(error)
+        else:
+            job.status      = 'done'
+            job.result_json = json.dumps(result) if result else None
+        job.completed_at = datetime.utcnow()
+        db.commit()
+        return jsonify({'success': True})
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        db.close()
 

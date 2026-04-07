@@ -136,28 +136,18 @@ class APIClient:
         return result.get('activities', [])
 
     # ------------------------------------------------------------------
-    # Plaxis
+    # Plaxis  (all computation goes through the job queue)
     # ------------------------------------------------------------------
 
-    def plaxis_connect(self, port: int, password: str, session_id: str, host: str = None) -> dict:
-        payload = {
-            'port': port, 'password': password, 'session_id': session_id,
-        }
-        if host:
-            payload['host'] = host
-        return self._post('/api/plaxis/connect', payload, timeout=10)
+    def plaxis_submit_job(self, job_type: str, params: dict) -> dict:
+        """Submit a job to the PlaxisWorker queue. Returns {'job_id': int}."""
+        payload = dict(params)
+        payload['job_type'] = job_type
+        return self._post('/api/plaxis/jobs', payload, timeout=10)
 
-    def plaxis_model_info(self, session_id: str) -> dict:
-        return self._get('/api/plaxis/model-info', {'session_id': session_id}, timeout=30)
-
-    def plaxis_run(self, payload: dict) -> dict:
-        return self._post('/api/plaxis/run', payload, timeout=300)
-
-    def plaxis_parametric_run(self, payload: dict) -> dict:
-        return self._post('/api/plaxis/parametric-run', payload, timeout=120)
-
-    def plaxis_water_sensitivity_run(self, payload: dict) -> dict:
-        return self._post('/api/plaxis/water-sensitivity-run', payload, timeout=120)
+    def plaxis_job_status(self, job_id: int) -> dict:
+        """Poll for job status. Returns {'job': {...}} with status/result."""
+        return self._get(f'/api/plaxis/jobs/{job_id}', timeout=10)
 
     def plaxis_ai_quality_check(self, model_data: dict) -> dict:
         return self._post('/api/plaxis/ai-quality-check', {'model_data': model_data}, timeout=60)
@@ -183,7 +173,7 @@ class APIClient:
             'session_id': session_id,
             'input_password': input_password,
             'output_password': output_password or input_password,
-        }, timeout=300)
+        }, timeout=30)
 
     # ------------------------------------------------------------------
     # GeoTolk

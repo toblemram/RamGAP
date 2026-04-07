@@ -106,6 +106,36 @@ class RecentActivity(Base):
 
 
 # ---------------------------------------------------------------------------
+# Plaxis Worker job queue
+# ---------------------------------------------------------------------------
+
+class PlaxisJob(Base):
+    """A job sent to the local PlaxisWorker for execution."""
+    __tablename__ = 'plaxis_jobs'
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    session_id  = Column(String(255), nullable=False)
+    job_type    = Column(String(50), nullable=False)   # connect, model_info, run, parametric, water
+    code        = Column(Text, nullable=False)          # Python source to execute
+    status      = Column(String(20), nullable=False, default='pending')  # pending | running | done | failed | timeout
+    result_json = Column(Text, nullable=True)
+    error       = Column(Text, nullable=True)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'session_id': self.session_id,
+            'job_type': self.job_type, 'code': self.code,
+            'status': self.status,
+            'result': json.loads(self.result_json) if self.result_json else None,
+            'error': self.error,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Plaxis activity
 # ---------------------------------------------------------------------------
 
