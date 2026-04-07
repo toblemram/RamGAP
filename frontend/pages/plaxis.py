@@ -259,7 +259,7 @@ def show_level1():
             st.markdown("---")
             st.markdown("#### 🤖 AI-kvalitetssjekk av modell")
             st.caption("AI analyserer modellen og flagger potensielle problemer.")
-            if st.button("🔍 Kjør AI-kvalitetssjekk", use_container_width=True, key="ai_qc_btn"):
+            if st.button("🔍 Kjør QA med GAPI", use_container_width=True, key="ai_qc_btn"):
                 with st.spinner("AI analyserer modellen..."):
                     qc = api.plaxis_ai_quality_check(model)
                     if qc.get("success"):
