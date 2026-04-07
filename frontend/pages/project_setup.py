@@ -6,24 +6,6 @@ from components.auth import require_username
 from components.api_client import APIClient
 
 
-def _pick_folder(initial_dir: str = "") -> str:
-    """Open a native Windows folder-picker dialog and return the chosen path."""
-    import os
-    import tkinter as tk
-    from tkinter import filedialog
-    root = tk.Tk()
-    root.withdraw()
-    root.wm_attributes("-topmost", 1)
-    kwargs = {}
-    if initial_dir and os.path.isdir(initial_dir):
-        kwargs["initialdir"] = initial_dir
-    folder = filedialog.askdirectory(**kwargs)
-    root.destroy()
-    if folder:
-        return os.path.normpath(folder)
-    return ""
-
-
 USERNAME = require_username()
 api = APIClient()
 
@@ -38,28 +20,16 @@ st.markdown("---")
 
 st.markdown("### Opprett nytt prosjekt")
 
-# Session state for folder picker (outside form)
+# Session state for folder picker
 if "new_project_folder" not in st.session_state:
     st.session_state.new_project_folder = ""
 
-# Handle pending browse result before widget renders
-if st.session_state.get("_browse_new_pending"):
-    st.session_state.new_project_folder = st.session_state.pop("_browse_new_pending")
-
-col_folder, col_browse = st.columns([4, 1])
-with col_folder:
-    folder_display = st.text_input(
-        "Prosjektmappe",
-        key="new_project_folder",
-        help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn",
-    )
-with col_browse:
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("📂 Bla gjennom…", key="browse_new_folder", use_container_width=True):
-        chosen = _pick_folder(st.session_state.new_project_folder)
-        if chosen:
-            st.session_state["_browse_new_pending"] = chosen
-            st.rerun()
+st.text_input(
+    "Prosjektmappe",
+    key="new_project_folder",
+    help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn",
+    placeholder="P:\\1234 Prosjektnavn",
+)
 
 with st.form("create_project_form"):
     project_name = st.text_input("Prosjektnavn *")
@@ -136,26 +106,14 @@ if projects:
                 key=f"edit_owner_{pid}",
             )
 
-            # Prosjektmappe med folder-picker
+            # Prosjektmappe
             folder_key = f"edit_folder_{pid}"
-            pending_key = f"_browse_edit_pending_{pid}"
             if folder_key not in st.session_state:
                 st.session_state[folder_key] = project.get('folder_path') or ''
-            if st.session_state.get(pending_key):
-                st.session_state[folder_key] = st.session_state.pop(pending_key)
-            fc, bc = st.columns([4, 1])
-            with fc:
-                new_folder = st.text_input(
-                    "Prosjektmappe",
-                    key=folder_key,
-                )
-            with bc:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("📂", key=f"browse_folder_{pid}", use_container_width=True):
-                    chosen = _pick_folder(st.session_state.get(folder_key, ''))
-                    if chosen:
-                        st.session_state[pending_key] = chosen
-                        st.rerun()
+            new_folder = st.text_input(
+                "Prosjektmappe",
+                key=folder_key,
+            )
 
             if st.button("💾 Lagre endringer", key=f"save_project_{pid}", type="primary"):
                 updates = {}
