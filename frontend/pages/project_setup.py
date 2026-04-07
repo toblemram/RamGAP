@@ -4,6 +4,11 @@
 import streamlit as st
 from components.auth import require_username
 from components.api_client import APIClient
+from components.project_map import (
+    load_snd_from_uploaded_files,
+    query_nadag_for_project,
+    CRS_OPTIONS,
+)
 
 
 USERNAME = require_username()
@@ -25,11 +30,29 @@ if "new_project_folder" not in st.session_state:
     st.session_state.new_project_folder = ""
 
 st.text_input(
-    "Prosjektmappe",
+    "Prosjektmappe (valgfritt — kun for lokal tilgang)",
     key="new_project_folder",
-    help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn",
+    help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn. Valgfritt — du kan laste opp SND-filer direkte.",
     placeholder="P:\\1234 Prosjektnavn",
 )
+
+# SND file uploader (works on Azure too)
+st.markdown("#### 📂 Last opp SND-filer")
+st.caption("Last opp SND-filer slik at prosjektoversikten viser borehullkartet med en gang.")
+snd_uploads = st.file_uploader(
+    "Velg SND-filer",
+    type=["snd"],
+    accept_multiple_files=True,
+    key="new_project_snd_files",
+)
+
+# CRS selector (for uploaded files)
+if snd_uploads:
+    selected_crs = st.selectbox(
+        "Koordinatsystem", options=list(CRS_OPTIONS.keys()),
+        index=list(CRS_OPTIONS.values()).index(25833),
+        key="new_project_crs",
+    )
 
 with st.form("create_project_form"):
     project_name = st.text_input("Prosjektnavn *")
@@ -50,7 +73,28 @@ with st.form("create_project_form"):
             result = api.create_project(project_name, project_description, USERNAME, allowed_users, project_folder)
 
             if result.get("id") or result.get("project"):
+                new_id = result.get("id") or result["project"].get("id")
                 st.success(f"✅ Prosjekt '{project_name}' opprettet!")
+
+                # Parse uploaded SND files and store in session state
+                if snd_uploads:
+                    epsg = CRS_OPTIONS.get(
+                        st.session_state.get("new_project_crs", ""), 25833
+                    )
+                    with st.spinner("Parser SND-filer…"):
+                        snd_data = load_snd_from_uploaded_files(
+                            snd_uploads, project_name, epsg
+                        )
+                    if snd_data and snd_data.get("boreholes"):
+                        st.session_state[f"_snd_project_{new_id}"] = snd_data
+                        # Also query NADAG for the area
+                        nadag_df = query_nadag_for_project(snd_data["boreholes"])
+                        st.session_state[f"_nadag_df_{new_id}"] = nadag_df
+                        st.session_state[f"_geo_loaded_{new_id}"] = True
+                        st.success(
+                            f"📍 {len(snd_data['boreholes'])} borehull lastet inn"
+                        )
+
                 _cached_projects.clear()
                 st.rerun()
             else:
@@ -114,6 +158,38 @@ if projects:
                 "Prosjektmappe",
                 key=folder_key,
             )
+
+            # SND file upload for existing project
+            st.markdown("##### 📂 Last opp SND-filer")
+            edit_snd = st.file_uploader(
+                "Velg SND-filer",
+                type=["snd"],
+                accept_multiple_files=True,
+                key=f"edit_snd_{pid}",
+            )
+            if edit_snd:
+                edit_crs = st.selectbox(
+                    "Koordinatsystem",
+                    options=list(CRS_OPTIONS.keys()),
+                    index=list(CRS_OPTIONS.values()).index(25833),
+                    key=f"edit_crs_{pid}",
+                )
+                if st.button("📥 Last inn SND-filer", key=f"btn_load_snd_{pid}"):
+                    epsg = CRS_OPTIONS[edit_crs]
+                    with st.spinner("Parser SND-filer…"):
+                        snd_data = load_snd_from_uploaded_files(
+                            edit_snd, project['name'], epsg
+                        )
+                    if snd_data and snd_data.get("boreholes"):
+                        st.session_state[f"_snd_project_{pid}"] = snd_data
+                        nadag_df = query_nadag_for_project(snd_data["boreholes"])
+                        st.session_state[f"_nadag_df_{pid}"] = nadag_df
+                        st.session_state[f"_geo_loaded_{pid}"] = True
+                        st.success(
+                            f"📍 {len(snd_data['boreholes'])} borehull lastet inn"
+                        )
+                    else:
+                        st.warning("Ingen gyldige SND-borehull funnet i filene.")
 
             if st.button("💾 Lagre endringer", key=f"save_project_{pid}", type="primary"):
                 updates = {}

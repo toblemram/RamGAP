@@ -358,9 +358,20 @@ with tab_check:
         st.markdown("#### 📋 Prosjektdata for samsvarskontroll")
         st.caption("Velg hva som skal sjekkes mot standarden.")
 
+        # Check if folder is locally accessible
+        _folder_accessible = folder and os.path.isdir(folder)
+
+        # Build data source options based on folder accessibility
+        _source_options = []
+        if _folder_accessible:
+            _source_options.append("📄 Velg rapport fra prosjektmappen")
+            _source_options.append("📁 Skann hele prosjektmappen")
+        _source_options.append("📤 Last opp filer")
+        _source_options.append("✏️ Skriv inn manuelt")
+
         data_source = st.radio(
             "Datakilde",
-            options=["📄 Velg rapport fra prosjektmappen", "📁 Skann hele prosjektmappen", "✏️ Skriv inn manuelt"],
+            options=_source_options,
             horizontal=True,
             key="check_data_source",
         )
@@ -426,6 +437,26 @@ with tab_check:
                 st.text(summary[:5000])
                 if len(summary) > 5000:
                     st.caption(f"… ({len(summary)} tegn totalt)")
+
+        elif data_source == "📤 Last opp filer":
+            # ── File upload (works on Azure) ─────────────────────
+            uploaded_docs = st.file_uploader(
+                "Last opp rapport- eller datafiler",
+                type=["pdf", "txt", "md", "csv", "json", "snd"],
+                accept_multiple_files=True,
+                key="check_upload_files",
+            )
+            if uploaded_docs:
+                parts: list[str] = [f"Prosjekt: {project.get('name', 'Ukjent')}"]
+                for uf in uploaded_docs:
+                    content = uf.read().decode("utf-8", errors="replace")
+                    uf.seek(0)
+                    if content.strip():
+                        parts.append(f"\n=== {uf.name} ===")
+                        parts.append(content[:4000])
+                summary = "\n".join(parts)
+                with st.expander(f"👁️ Forhåndsvisning ({len(summary)} tegn)", expanded=False):
+                    st.text(summary[:8000])
 
         else:
             # ── Manual input ─────────────────────────────────────

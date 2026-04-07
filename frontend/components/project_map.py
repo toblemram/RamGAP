@@ -408,6 +408,77 @@ def load_snd_project(folder_path: str, source_epsg: int = 0) -> dict | None:
     }
 
 
+def load_snd_from_uploaded_files(
+    uploaded_files: list,
+    project_name: str = "Opplastet",
+    source_epsg: int = 25833,
+) -> dict | None:
+    """
+    Load boreholes from uploaded SND file objects (st.file_uploader results).
+
+    Each item should have .name and .read() (Streamlit UploadedFile).
+    Returns the same dict structure as load_snd_project().
+    """
+    if not uploaded_files:
+        return None
+
+    boreholes = []
+    errors = []
+    for uf in uploaded_files:
+        try:
+            content = uf.read().decode("utf-8", errors="ignore")
+            uf.seek(0)  # reset for potential re-reads
+            data = parse_snd_full(content)
+            lat, lon = _convert_coords(data["x"], data["y"], source_epsg)
+            if not (math.isfinite(lat) and math.isfinite(lon)
+                    and -90 <= lat <= 90 and -180 <= lon <= 180):
+                errors.append(f"{uf.name}: Ugyldige koordinater")
+                continue
+            stem = Path(uf.name).stem
+            bh = {
+                "point_id": stem,
+                "file_path": None,
+                "lat": lat,
+                "lon": lon,
+                "elevation": data["z"],
+                "method_code": data.get("method_code"),
+                "method_name": data.get("method_name", "Ukjent"),
+                "date": data.get("date"),
+                "max_depth": data.get("max_depth", 0),
+            }
+            boreholes.append(bh)
+            _store_graph_data(project_name, stem, {
+                "depth": data["depth"],
+                "c2": data["c2"],
+                "c3": data.get("c3", []),
+                "c4": data.get("c4", []),
+                "spyling": data.get("spyling", []),
+                "slag": data.get("slag", []),
+            })
+        except Exception as e:
+            errors.append(f"{uf.name}: {e}")
+
+    if not boreholes:
+        return None
+
+    coords = [(bh["lat"], bh["lon"]) for bh in boreholes]
+    if len(coords) >= 3:
+        hull = _hull_with_buffer(coords)
+        polygon = hull + [hull[0]]
+    else:
+        polygon = coords
+
+    return {
+        "project_name": project_name,
+        "folder_path": None,
+        "epsg": source_epsg,
+        "detected_epsg": None,
+        "boreholes": boreholes,
+        "polygon": polygon,
+        "errors": errors,
+    }
+
+
 # ---------------------------------------------------------------------------
 # NADAG WFS queries (NGU borehole database)
 # ---------------------------------------------------------------------------

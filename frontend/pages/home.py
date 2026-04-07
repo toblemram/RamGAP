@@ -16,6 +16,7 @@ from components.auth import require_username
 from components.api_client import APIClient
 from components.project_map import (
     load_snd_project,
+    load_snd_from_uploaded_files,
     query_nadag_for_project,
     build_project_map,
     build_sounding_figure,
@@ -23,6 +24,7 @@ from components.project_map import (
     build_terrain_grid,
     scan_project_folder,
     get_graph_data,
+    CRS_OPTIONS,
 )
 
 USERNAME = require_username()
@@ -166,21 +168,23 @@ def _ensure_project_geo_loaded(project: dict) -> None:
         st.session_state[cache_key] = True
         return
 
-    # Load SND project from folder
+    # Load SND project from folder (only works when folder is accessible)
     snd_key = f"_snd_project_{pid}"
     nadag_key = f"_nadag_df_{pid}"
 
     if snd_key not in st.session_state:
-        with st.spinner("Laster borehull fra prosjektmappe…"):
-            snd_data = load_snd_project(folder)
-            st.session_state[snd_key] = snd_data
+        from pathlib import Path
+        if Path(folder).is_dir():
+            with st.spinner("Laster borehull fra prosjektmappe…"):
+                snd_data = load_snd_project(folder)
+                st.session_state[snd_key] = snd_data
 
-            # Query NADAG for the project area
-            if snd_data and snd_data.get("boreholes"):
-                nadag_df = query_nadag_for_project(snd_data["boreholes"])
-                st.session_state[nadag_key] = nadag_df
-            else:
-                st.session_state[nadag_key] = None
+                # Query NADAG for the project area
+                if snd_data and snd_data.get("boreholes"):
+                    nadag_df = query_nadag_for_project(snd_data["boreholes"])
+                    st.session_state[nadag_key] = nadag_df
+                else:
+                    st.session_state[nadag_key] = None
 
     st.session_state[cache_key] = True
 
@@ -197,13 +201,43 @@ def _tab_oversikt(project: dict):
     if not snd_data or not snd_data.get("boreholes"):
         folder = project.get("folder_path")
         if not folder:
-            st.info("Ingen prosjektmappe er satt. Gå til **Prosjektinnstillinger** for å legge til en mappe med SND-filer.")
+            st.info("Ingen prosjektmappe er satt. Du kan laste opp SND-filer direkte.")
         else:
-            st.warning(f"Fant ingen SND-filer i prosjektmappen: `{folder}`")
+            st.warning(f"Prosjektmappen er ikke tilgjengelig: `{folder}`")
             if snd_data and snd_data.get("errors"):
                 with st.expander("⚠️ Feil ved lasting"):
                     for err in snd_data["errors"]:
                         st.caption(f"• {err}")
+
+        # SND upload fallback
+        st.markdown("#### 📂 Last opp SND-filer")
+        uploaded_snd = st.file_uploader(
+            "Velg SND-filer for å vise kart",
+            type=["snd"],
+            accept_multiple_files=True,
+            key=f"overview_snd_upload_{pid}",
+        )
+        if uploaded_snd:
+            sel_crs = st.selectbox(
+                "Koordinatsystem",
+                options=list(CRS_OPTIONS.keys()),
+                index=list(CRS_OPTIONS.values()).index(25833),
+                key=f"overview_crs_{pid}",
+            )
+            if st.button("📥 Last inn", key=f"overview_load_snd_{pid}", type="primary"):
+                epsg = CRS_OPTIONS[sel_crs]
+                with st.spinner("Parser SND-filer…"):
+                    snd_data = load_snd_from_uploaded_files(
+                        uploaded_snd, project["name"], epsg
+                    )
+                if snd_data and snd_data.get("boreholes"):
+                    st.session_state[f"_snd_project_{pid}"] = snd_data
+                    nadag_df = query_nadag_for_project(snd_data["boreholes"])
+                    st.session_state[f"_nadag_df_{pid}"] = nadag_df
+                    st.session_state[f"_geo_loaded_{pid}"] = True
+                    st.rerun()
+                else:
+                    st.warning("Ingen gyldige borehull funnet i filene.")
         return
 
     boreholes = snd_data["boreholes"]
@@ -277,32 +311,36 @@ def _tab_data(project: dict):
     if not folder:
         st.info("Ingen prosjektmappe er satt.")
     else:
-        scan = scan_project_folder(folder)
-        if not scan.get("exists"):
-            st.warning(f"Mappen finnes ikke: `{folder}`")
+        from pathlib import Path as _Path
+        if not _Path(folder).is_dir():
+            st.info(f"Prosjektmappen er ikke tilgjengelig lokalt: `{folder}`")
         else:
-            import pandas as pd
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                st.metric("Totalt filer", scan.get("total_files", 0))
-            with col_f2:
-                st.metric("Undermapper", len(scan.get("subfolders", [])))
+            scan = scan_project_folder(folder)
+            if not scan.get("exists"):
+                st.warning(f"Mappen finnes ikke: `{folder}`")
+            else:
+                import pandas as pd
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    st.metric("Totalt filer", scan.get("total_files", 0))
+                with col_f2:
+                    st.metric("Undermapper", len(scan.get("subfolders", [])))
 
-            # Subfolders
-            subfolders = scan.get("subfolders", [])
-            if subfolders:
-                st.markdown("**Undermapper:**")
-                for sf in subfolders:
-                    st.caption(f"📁 {sf['name']}  ({sf['count']} elementer)")
+                # Subfolders
+                subfolders = scan.get("subfolders", [])
+                if subfolders:
+                    st.markdown("**Undermapper:**")
+                    for sf in subfolders:
+                        st.caption(f"📁 {sf['name']}  ({sf['count']} elementer)")
 
-            # File types
-            file_groups = scan.get("file_groups", {})
-            if file_groups:
-                st.markdown("**Filtyper:**")
-                rows = []
-                for ext, files in sorted(file_groups.items()):
-                    rows.append({"Type": ext, "Antall": len(files), "Eksempler": ", ".join(files[:3]) + ("…" if len(files) > 3 else "")})
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                # File types
+                file_groups = scan.get("file_groups", {})
+                if file_groups:
+                    st.markdown("**Filtyper:**")
+                    rows = []
+                    for ext, files in sorted(file_groups.items()):
+                        rows.append({"Type": ext, "Antall": len(files), "Eksempler": ", ".join(files[:3]) + ("…" if len(files) > 3 else "")})
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     st.markdown("---")
 

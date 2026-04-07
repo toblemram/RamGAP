@@ -132,9 +132,12 @@ def show_step2():
     project = st.session_state.selected_project
     folder_path = project.get("folder_path") if project else None
 
+    # Only show "fetch from project folder" if the folder is actually accessible
     from_project = False
     if folder_path:
-        from_project = st.checkbox(f"📁 Hent fra prosjekt (`{folder_path}`)", value=False, key="geotolk_from_project")
+        from pathlib import Path as _P
+        if _P(folder_path).is_dir():
+            from_project = st.checkbox(f"📁 Hent fra prosjekt (`{folder_path}`)", value=False, key="geotolk_from_project")
 
     if from_project and folder_path:
         if st.button("📥 Last inn filer fra prosjektmappe", type="primary", key="geotolk_fetch_project", use_container_width=True):
@@ -378,15 +381,14 @@ def _complete_session(files: list):
             st.success(f"CSV lagret: {csv_path}")
         except OSError as exc:
             st.error(f"Kunne ikke lagre CSV til prosjektmappe: {exc}")
-    else:
-        # No project folder — let user download directly
-        st.warning("Ingen prosjektmappe funnet. Last ned CSV-filen manuelt:")
-        st.download_button(
-            label="⬇️ Last ned tolkning (CSV)",
-            data=csv_content.encode("utf-8-sig"),
-            file_name=csv_filename,
-            mime="text/csv",
-        )
+
+    # Always offer download button (works on Azure and locally)
+    st.download_button(
+        label="⬇️ Last ned tolkning (CSV)",
+        data=csv_content.encode("utf-8-sig"),
+        file_name=csv_filename,
+        mime="text/csv",
+    )
 
     # --- 2. Send to Azure DB for ML training ---
     interpreted_files = []
