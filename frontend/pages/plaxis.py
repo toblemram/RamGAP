@@ -112,7 +112,15 @@ def show_level1():
                     else:
                         st.error(f"Feil ved lasting av modell: {model.get('error')}")
                 else:
-                    st.error(f"Tilkoblingsfeil: {conn.get('error')}")
+                    err = conn.get('error', '')
+                    if 'plxscripting' in err.lower():
+                        st.error(
+                            "⚠️ Plaxis-tilkobling krever at backend kjører "
+                            "i Plaxis sitt Python-miljø (lokalt). "
+                            "Dette er ikke tilgjengelig på nettserveren."
+                        )
+                    else:
+                        st.error(f"Tilkoblingsfeil: {err}")
 
     with col2:
         st.markdown("#### Modellstatus")

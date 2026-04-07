@@ -578,15 +578,15 @@ def build_project_map(
     lons = [bh["lon"] for bh in boreholes]
     center = [sum(lats) / len(lats), sum(lons) / len(lons)]
 
-    m = folium.Map(location=center, zoom_start=14, control_scale=True, tiles=None)
+    m = folium.Map(location=center, zoom_start=14, control_scale=True)
 
-    # Norgeskart base (always on)
+    # Norgeskart (optional layer — switch via layer control)
     folium.TileLayer(
         tiles="https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
         attr="Kartverket",
         name="Norgeskart",
         overlay=False,
-        control=False,
+        control=True,
     ).add_to(m)
 
     # --- NVE Kvikkleire (quick clay) zones ---
@@ -668,6 +668,7 @@ def build_project_map(
     MiniMap(toggle_display=True).add_to(m)
     Fullscreen(position="topright").add_to(m)
     MousePosition(position="bottomright", prefix="Koordinat").add_to(m)
+    folium.LayerControl().add_to(m)
     return m
 
 

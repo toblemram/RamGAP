@@ -77,7 +77,15 @@ if not st.session_state.pa_connected:
                     st.session_state.pa_connected = True
                     st.rerun()
                 else:
-                    st.error(res.get("error", "Tilkobling feilet"))
+                    err = res.get("error", "Tilkobling feilet")
+                    if 'plxscripting' in err.lower():
+                        st.error(
+                            "⚠️ Plaxis-tilkobling krever at backend kjører "
+                            "i Plaxis sitt Python-miljø (lokalt). "
+                            "Dette er ikke tilgjengelig på nettserveren."
+                        )
+                    else:
+                        st.error(err)
 
     st.stop()  # Ikke vis chatten før tilkoblet
 
