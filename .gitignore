@@ -73,3 +73,7 @@ output/
 *.pem
 *.key
 secrets.json
+
+deploy.zip
+*.spec
+
