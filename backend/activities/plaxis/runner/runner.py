@@ -18,12 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-try:
-    from plxscripting.easy import new_server
-    PLAXIS_AVAILABLE = True
-except ImportError:
-    new_server = None  # type: ignore[assignment]
-    PLAXIS_AVAILABLE = False
+from plxscripting.easy import new_server
 
 from activities.plaxis.extraction.result_extractor import run_capacity, run_msf, run_displacement
 from activities.plaxis.extraction.structure_resolver import resolve_structures, resolve_phases
@@ -37,6 +32,7 @@ def run_plaxis_extraction(
     output_port: Optional[int] = None,
     output_password: Optional[str] = None,
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    host: str = 'localhost',
 ) -> Dict[str, Any]:
     """
     Run the complete Plaxis extraction workflow.
@@ -54,12 +50,6 @@ def run_plaxis_extraction(
     Returns:
         Dict with keys: success, capacity, msf, displacement, output_file, errors.
     """
-    if not PLAXIS_AVAILABLE:
-        return {
-            'success': False,
-            'error': 'plxscripting is not available. Run from the Plaxis Python environment.',
-        }
-
     results: Dict[str, Any] = {
         'success': False,
         'capacity': {},
@@ -75,15 +65,15 @@ def run_plaxis_extraction(
 
     try:
         _progress(5, 'Connecting to Plaxis Input...')
-        s_i, g_i = new_server('localhost', input_port, password=input_password)
+        s_i, g_i = new_server(host, input_port, password=input_password)
 
         _progress(10, 'Connecting to Plaxis Output...')
         if output_port and output_password:
-            s_o, g_o = new_server('localhost', output_port, password=output_password)
+            s_o, g_o = new_server(host, output_port, password=output_password)
         else:
             port_out = g_i.view(g_i.Phases[0])
             pwd_out  = output_password or input_password
-            s_o, g_o = new_server('localhost', port_out, password=pwd_out)
+            s_o, g_o = new_server(host, port_out, password=pwd_out)
 
         _progress(20, 'Resolving structures...')
         selected_structures = resolve_structures(g_o, job)

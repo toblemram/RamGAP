@@ -21,6 +21,7 @@ api = APIClient()
 # -------------------------------------------------------------- session state
 _DEFAULTS = {
     "plaxis_connected":         False,
+    "plaxis_host":              "",
     "plaxis_port":              10000,
     "plaxis_password":          "",
     "plaxis_output_port":       10001,
@@ -31,7 +32,6 @@ _DEFAULTS = {
     "plaxis_selected_spunts":   [],
     "plaxis_selected_anchors":  [],
     "plaxis_selected_phases":   {},
-    "plaxis_demo_mode":         False,
     "plaxis_activity_name":     "",
     "selected_project":         None,
     # Parametric study state
@@ -72,6 +72,9 @@ def show_level1():
 
         st.markdown("---")
         st.markdown("#### Plaxis Input (modell)")
+        host = st.text_input("Plaxis Host",
+                             value=st.session_state.plaxis_host,
+                             placeholder="F.eks. '192.168.1.100' eller tomt for localhost")
         port = st.number_input("Input Port", 1000, 65535,
                                value=st.session_state.plaxis_port)
         password = st.text_input("Input Passord",
@@ -87,6 +90,7 @@ def show_level1():
 
         st.session_state.plaxis_port            = port
         st.session_state.plaxis_password        = password
+        st.session_state.plaxis_host            = host
         st.session_state.plaxis_output_port     = output_port
         st.session_state.plaxis_output_password = output_password
 
@@ -96,18 +100,13 @@ def show_level1():
         if st.button("🔌 Koble til Plaxis", type="primary",
                      use_container_width=True, disabled=not activity_name.strip()):
             with st.spinner("Kobler til Plaxis..."):
-                conn = api.plaxis_connect(port, password, USERNAME)
-                if conn.get("success") or conn.get("demo_mode"):
+                conn = api.plaxis_connect(port, password, USERNAME, host=host)
+                if conn.get("success"):
                     st.session_state.plaxis_connected = True
-                    st.session_state.plaxis_demo_mode = conn.get("demo_mode", False)
                     model = api.plaxis_model_info(USERNAME)
-                    if model.get("success") or model.get("demo_mode"):
+                    if model.get("success"):
                         st.session_state.plaxis_model_data = model
-                        st.session_state.plaxis_demo_mode  = model.get("demo_mode", False)
-                        if model.get("demo_mode"):
-                            st.warning("⚠️ Demo-modus: viser eksempeldata")
-                        else:
-                            st.success("✅ Tilkoblet! Modelldata lastet.")
+                        st.success("✅ Tilkoblet! Modelldata lastet.")
                         st.rerun()
                     else:
                         st.error(f"Feil ved lasting av modell: {model.get('error')}")
@@ -121,10 +120,7 @@ def show_level1():
             structs = model.get("structures", {})
             phases  = model.get("phases", [])
 
-            if st.session_state.plaxis_demo_mode:
-                st.info("🎭 Demo-modus aktiv")
-            else:
-                st.success("✅ Tilkoblet til Plaxis")
+            st.success("✅ Tilkoblet til Plaxis")
 
             # ---- Plate cards ----
             plates = structs.get("plates", [])
@@ -727,6 +723,7 @@ def _run_calculation(output_path: str, generate_excel: bool):
         "job":             job,
         "project_id":      project_id,
         "activity_name":   st.session_state.plaxis_activity_name or "Plaxis beregning",
+        "host":            st.session_state.plaxis_host or None,
         "input_port":      st.session_state.plaxis_port,
         "input_password":  st.session_state.plaxis_password,
         "output_port":     st.session_state.plaxis_output_port,
@@ -736,10 +733,8 @@ def _run_calculation(output_path: str, generate_excel: bool):
     if result.get("success"):
         progress.progress(100)
         status.text("Ferdig!")
-        if result.get("demo_mode"):
-            st.info("🎭 Demo-modus: viser eksempelresultater")
         st.success("✅ Beregning fullført!")
-        if result.get("output_file") and result["output_file"] != "Demo - ingen fil generert":
+        if result.get("output_file"):
             st.info(f"📁 Resultater lagret i: {result['output_file']}")
 
         st.markdown("---")
@@ -1022,6 +1017,7 @@ def _run_parametric_study(combos, phases_config):
             "fos_phase":     phases_config.get("fos_phase"),
             "disp_phase":    phases_config.get("disp_phase"),
             "cap_phase":     phases_config.get("cap_phase"),
+            "host":          st.session_state.plaxis_host or None,
             "input_port":    st.session_state.plaxis_port,
             "input_password": st.session_state.plaxis_password,
             "output_port":   st.session_state.plaxis_output_port,
@@ -1510,6 +1506,7 @@ def _run_water_sensitivity(wl_vals, phases_config):
             "fos_phase":       phases_config.get("fos_phase"),
             "disp_phase":      phases_config.get("disp_phase"),
             "cap_phase":       phases_config.get("cap_phase"),
+            "host":            st.session_state.plaxis_host or None,
             "output_port":     st.session_state.plaxis_output_port,
             "output_password": st.session_state.plaxis_output_password,
         }

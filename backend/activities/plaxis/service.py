@@ -15,12 +15,7 @@ Usage:
 
 from typing import Any, Dict, List
 
-try:
-    from plxscripting.easy import new_server
-    PLAXIS_AVAILABLE = True
-except ImportError:
-    new_server = None  # type: ignore[assignment]
-    PLAXIS_AVAILABLE = False
+from plxscripting.easy import new_server
 
 from activities.plaxis.extraction.model_info import extract_model_info
 
@@ -41,20 +36,15 @@ class PlaxisService:
     # Connection management
     # ------------------------------------------------------------------
 
-    def connect(self, port: int, password: str) -> Dict[str, Any]:
+    def connect(self, port: int, password: str, host: str = 'localhost') -> Dict[str, Any]:
         """
         Connect to a running Plaxis Input server.
 
         Returns:
             {'success': True} or {'success': False, 'error': '...'}
         """
-        if not PLAXIS_AVAILABLE:
-            return {
-                'success': False,
-                'error': 'plxscripting is not available. Run from the Plaxis Python environment.',
-            }
         try:
-            self.s_i, self.g_i = new_server('localhost', port, password=password)
+            self.s_i, self.g_i = new_server(host, port, password=password)
             self.port      = port
             self.password  = password
             self.connected = True

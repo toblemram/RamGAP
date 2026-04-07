@@ -139,10 +139,13 @@ class APIClient:
     # Plaxis
     # ------------------------------------------------------------------
 
-    def plaxis_connect(self, port: int, password: str, session_id: str) -> dict:
-        return self._post('/api/plaxis/connect', {
+    def plaxis_connect(self, port: int, password: str, session_id: str, host: str = None) -> dict:
+        payload = {
             'port': port, 'password': password, 'session_id': session_id,
-        }, timeout=10)
+        }
+        if host:
+            payload['host'] = host
+        return self._post('/api/plaxis/connect', payload, timeout=10)
 
     def plaxis_model_info(self, session_id: str) -> dict:
         return self._get('/api/plaxis/model-info', {'session_id': session_id}, timeout=30)

@@ -21,6 +21,7 @@ from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request
 
+from config import PLAXIS_HOST
 from core.database import get_db_session
 from core.models import PlaxisCalculation
 from activities.plaxis.runner.runner import run_plaxis_extraction
@@ -52,64 +53,7 @@ def _get_deployment():
     return AZURE_OPENAI_DEPLOYMENT or 'gpt-4o'
 
 
-# ---------------------------------------------------------------------------
-# Demo data (returned when Plaxis is not available)
-# ---------------------------------------------------------------------------
-_DEMO_STRUCTURES = {
-    'plates': [
-        {'name': 'Spunt_venstre', 'display_name': 'Name: Spunt_venstre, x = 0.0', 'x': 0.0, 'type': 'plate',
-         'x1': 0.0, 'y1': 2.0, 'x2': 0.0, 'y2': -12.0, 'length': 14.0,
-         'material': {'name': 'AZ18-770', 'EA1': 2919000, 'EI': 79380, 'd': 0.571, 'w': 0, 'MaterialType': 1}},
-        {'name': 'Spunt_høyre', 'display_name': 'Name: Spunt_høyre, x = 15.0', 'x': 15.0, 'type': 'plate',
-         'x1': 15.0, 'y1': 2.0, 'x2': 15.0, 'y2': -12.0, 'length': 14.0,
-         'material': {'name': 'AZ18-770', 'EA1': 2919000, 'EI': 79380, 'd': 0.571, 'w': 0, 'MaterialType': 1}},
-    ],
-    'embedded_beams':       [],
-    'node_to_node_anchors': [
-        {'name': 'Anker_1', 'display_name': 'Name: Anker_1, (0.0,-2.0) → (5.0,-4.0)',
-         'x1': 0.0, 'y1': -2.0, 'x2': 5.0, 'y2': -4.0, 'type': 'node_to_node_anchor',
-         'length': 5.39,
-         'material': {'name': 'Ø610/10', 'EA': 12980000, 'MaterialType': 2}},
-    ],
-    'fixed_end_anchors': [],
-    'geogrids':          [],
-}
-_DEMO_PHASES = [
-    {'id': i, 'number': i, 'name': name, 'calc_type': ct, 'calc_type_id': cid,
-     'previous': prev, 'msf_enabled': False, 'ux_enabled': False, 'capacity_enabled': False}
-    for i, (name, ct, cid, prev) in enumerate([
-        ('Initial phase',        'K0-prosedyre',                  1, None),
-        ('Installasjon spunt',   'Plastisk',                      4, 'Initial phase'),
-        ('Utgraving nivå 1',     'Plastisk',                      4, 'Installasjon spunt'),
-        ('Installasjon anker',   'Plastisk',                      4, 'Utgraving nivå 1'),
-        ('Utgraving til bunn',   'Plastisk',                      4, 'Installasjon anker'),
-        ('FoS analyse',          'Sikkerhet (phi/c-reduksjon)',    7, 'Utgraving til bunn'),
-    ])
-]
-_DEMO_RESULTS = {
-    'capacity': {
-        'plates': {
-            'Spunt_venstre': {
-                'Utgraving til bunn': {'Nx': 245.3, 'Q': 89.2, 'M': 312.5},
-                'FoS analyse':        {'Nx': 267.8, 'Q': 95.4, 'M': 345.2},
-            }
-        }
-    },
-    'msf':          {'FoS analyse': 1.32},
-    'displacement': {'plates': {'Spunt_venstre': {'Utgraving til bunn': 23.5, 'FoS analyse': 28.1}}},
-}
-_DEMO_GEOMETRY = {
-    'soil_layers': [
-        {'name': 'Soillayer_1', 'top': 3.0, 'bottom': 0.0, 'material': 'Fyllmasser'},
-        {'name': 'Soillayer_2', 'top': 0.0, 'bottom': -4.0, 'material': 'Leire 1'},
-        {'name': 'Soillayer_3', 'top': -4.0, 'bottom': -12.0, 'material': 'Leire 2'},
-        {'name': 'Soillayer_4', 'top': -12.0, 'bottom': -18.0, 'material': 'Berg'},
-    ],
-    'boreholes': 1,
-    'water_head': 1.0,
-    'xmin': 0.0, 'xmax': 20.0, 'ymin': -14.0, 'ymax': 3.0,
-    'lines': [],
-}
+
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +66,7 @@ def connect():
     data       = request.get_json() or {}
     port       = data.get('port')
     password   = data.get('password')
+    host       = data.get('host') or PLAXIS_HOST
     session_id = data.get('session_id', 'default')
 
     if not port or not password:
@@ -134,22 +79,14 @@ def connect():
 
     try:
         from plxscripting.easy import new_server
-        s_i, g_i = new_server('localhost', port, password=password)
+        s_i, g_i = new_server(host, port, password=password)
         _plaxis_sessions[session_id] = {
-            'port': port, 'password': password,
+            'port': port, 'password': password, 'host': host,
             's_i': s_i, 'g_i': g_i, 'connected': True,
         }
-        return jsonify({'success': True, 'message': 'Connected to Plaxis.', 'session_id': session_id})
+        return jsonify({'success': True, 'message': f'Connected to Plaxis at {host}:{port}.', 'session_id': session_id})
     except ImportError:
-        _plaxis_sessions[session_id] = {
-            'port': port, 'password': password,
-            's_i': None, 'g_i': None, 'connected': False,
-        }
-        return jsonify({
-            'success': True,
-            'warning': 'plxscripting not available — demo mode active.',
-            'session_id': session_id,
-        })
+        return jsonify({'success': False, 'error': 'plxscripting is not installed on the server. Install it with: pip install plxscripting'}), 500
     except Exception as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
 
@@ -179,22 +116,21 @@ def status():
 
 @plaxis_bp.route('/model-info', methods=['GET'])
 def model_info():
-    """Return structures and phases from the open Plaxis model (or demo data)."""
+    """Return structures and phases from the open Plaxis model."""
     session_id = request.args.get('session_id', 'default')
     session    = _plaxis_sessions.get(session_id)
 
     if not session or not session.get('g_i'):
         return jsonify({
-            'success': True, 'demo_mode': True,
-            'structures': _DEMO_STRUCTURES, 'phases': _DEMO_PHASES,
-            'geometry': _DEMO_GEOMETRY,
-        })
+            'success': False,
+            'error': 'Not connected to Plaxis. Connect first via the connection panel.',
+        }), 400
 
     g_i = session['g_i']
     try:
         from activities.plaxis.extraction.model_info import extract_model_info
         info = extract_model_info(g_i)
-        info.update({'success': True, 'demo_mode': False})
+        info.update({'success': True})
         return jsonify(info)
     except Exception as exc:
         return jsonify({'success': False, 'error': str(exc)}), 500
@@ -223,6 +159,10 @@ def run_extraction():
     session = _plaxis_sessions.get(session_id, {})
     input_port     = input_port     or session.get('port')
     input_password = input_password or session.get('password')
+    host           = data.get('host') or session.get('host') or PLAXIS_HOST
+
+    if not input_port or not input_password:
+        return jsonify({'error': 'Plaxis port and password are required. Connect first.'}), 400
 
     project_id    = data.get('project_id')
     activity_name = data.get('activity_name', 'Plaxis calculation')
@@ -250,26 +190,12 @@ def run_extraction():
     db.commit()
     calc_id = calc.id
 
-    # Demo mode: no real Plaxis connection
-    if not input_port or not input_password:
-        calc.status       = 'completed'
-        calc.completed_at = datetime.utcnow()
-        calc.results_json = json.dumps(_DEMO_RESULTS)
-        db.commit()
-        db.close()
-        return jsonify({
-            'success': True, 'demo_mode': True,
-            'calculation_id': calc_id,
-            'results': _DEMO_RESULTS,
-            'output_file': 'Demo — no file generated',
-            'message': 'Demo mode: showing sample results.',
-        })
-
     try:
         calc.status = 'running'
         db.commit()
 
         results = run_plaxis_extraction(
+            host=host,
             input_port=input_port,
             input_password=input_password,
             output_port=output_port,
@@ -326,18 +252,9 @@ def parametric_run():
     g_i = session.get('g_i')
 
     if not g_i:
-        # Demo mode — return plausible synthetic results
-        import random
-        su = data.get('su', 15)
-        base_fos = 0.8 + su * 0.04 + random.uniform(-0.05, 0.05)
-        return jsonify({
-            'success': True, 'demo_mode': True,
-            'msf': round(base_fos, 2),
-            'ux_max': round(40 - su * 0.8 + random.uniform(-2, 2), 1),
-            'm_max': round(200 + su * 5 + random.uniform(-10, 10), 1),
-        })
+        return jsonify({'success': False, 'error': 'Not connected to Plaxis. Connect first.'}), 400
+    host = data.get('host') or session.get('host') or PLAXIS_HOST
 
-    # Real Plaxis execution
     ks_soil   = data.get('ks_soil')
     plate     = data.get('plate')
     su_val    = data.get('su')
@@ -360,6 +277,7 @@ def parametric_run():
             cap_phase=cap_phase,
             output_port=data.get('output_port'),
             output_password=data.get('output_password'),
+            host=host,
         )
         return jsonify(result)
     except Exception as exc:
@@ -382,25 +300,14 @@ def water_sensitivity_run():
     session_id = data.get('session_id', 'default')
     session    = _plaxis_sessions.get(session_id, {})
     g_i = session.get('g_i')
+    host = data.get('host') or session.get('host') or PLAXIS_HOST
 
     water_level = data.get('water_level')
     if water_level is None:
         return jsonify({'error': 'water_level is required'}), 400
 
     if not g_i:
-        # Demo mode — return plausible synthetic results
-        import random
-        wl = float(water_level)
-        base_fos = 2.5 - wl * 0.3 + random.uniform(-0.05, 0.05)
-        return jsonify({
-            'success': True, 'demo_mode': True,
-            'water_level': wl,
-            'msf': round(max(base_fos, 0.5), 2),
-            'ux_max': round(15 + wl * 5 + random.uniform(-2, 2), 1),
-            'm_max': round(150 + wl * 30 + random.uniform(-10, 10), 1),
-        })
-
-    # Real Plaxis execution
+        return jsonify({'success': False, 'error': 'Not connected to Plaxis. Connect first.'}), 400
     try:
         from activities.plaxis.parametric.water_sensitivity import run_single_water_level
         result = run_single_water_level(
@@ -413,6 +320,7 @@ def water_sensitivity_run():
             cap_phase=data.get('cap_phase'),
             output_port=data.get('output_port'),
             output_password=data.get('output_password'),
+            host=host,
         )
         return jsonify(result)
     except Exception as exc:
