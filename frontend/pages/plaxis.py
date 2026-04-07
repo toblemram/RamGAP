@@ -11,6 +11,7 @@ Multi-step workflow for extracting results from a running Plaxis model:
 """
 
 import os
+import time
 import streamlit as st
 from components.auth import require_username
 from components.api_client import APIClient
@@ -18,9 +19,37 @@ from components.api_client import APIClient
 USERNAME = require_username()
 api = APIClient()
 
+# -------------------------------------------------------------- job polling
+
+_JOB_POLL_INTERVAL = 2    # seconds between polls
+_JOB_TIMEOUT       = 120  # seconds before declaring worker unreachable
+
+
+def _poll_job(job_id: int, status_text=None, timeout: int = _JOB_TIMEOUT) -> dict:
+    """Poll backend for job result. Returns the job dict when done/failed/timeout."""
+    start = time.time()
+    while True:
+        elapsed = time.time() - start
+        if elapsed > timeout:
+            return {'status': 'timeout', 'error': 'PlaxisWorker svarte ikke i tide. Er den startet?'}
+        resp = api.plaxis_job_status(job_id)
+        if resp.get('error') and not resp.get('job'):
+            return {'status': 'failed', 'error': resp.get('error', 'Ukjent feil')}
+        job = resp.get('job', {})
+        st_val = job.get('status', 'pending')
+        if status_text:
+            if st_val == 'pending':
+                status_text.text(f"Venter på PlaxisWorker... ({int(elapsed)}s)")
+            elif st_val == 'running':
+                status_text.text(f"PlaxisWorker kjører beregning... ({int(elapsed)}s)")
+        if st_val in ('done', 'failed'):
+            return job
+        time.sleep(_JOB_POLL_INTERVAL)
+
 # -------------------------------------------------------------- session state
 _DEFAULTS = {
     "plaxis_connected":         False,
+    "plaxis_host":              "",
     "plaxis_port":              10000,
     "plaxis_password":          "",
     "plaxis_output_port":       10001,
@@ -31,7 +60,6 @@ _DEFAULTS = {
     "plaxis_selected_spunts":   [],
     "plaxis_selected_anchors":  [],
     "plaxis_selected_phases":   {},
-    "plaxis_demo_mode":         False,
     "plaxis_activity_name":     "",
     "selected_project":         None,
     # Parametric study state
@@ -72,6 +100,9 @@ def show_level1():
 
         st.markdown("---")
         st.markdown("#### Plaxis Input (modell)")
+        host = st.text_input("Plaxis Host",
+                             value=st.session_state.plaxis_host,
+                             placeholder="F.eks. '192.168.1.100' eller tomt for localhost")
         port = st.number_input("Input Port", 1000, 65535,
                                value=st.session_state.plaxis_port)
         password = st.text_input("Input Passord",
@@ -87,6 +118,7 @@ def show_level1():
 
         st.session_state.plaxis_port            = port
         st.session_state.plaxis_password        = password
+        st.session_state.plaxis_host            = host
         st.session_state.plaxis_output_port     = output_port
         st.session_state.plaxis_output_password = output_password
 
@@ -95,32 +127,30 @@ def show_level1():
 
         if st.button("🔌 Koble til Plaxis", type="primary",
                      use_container_width=True, disabled=not activity_name.strip()):
-            with st.spinner("Kobler til Plaxis..."):
-                conn = api.plaxis_connect(port, password, USERNAME)
-                if conn.get("success") or conn.get("demo_mode"):
-                    st.session_state.plaxis_connected = True
-                    st.session_state.plaxis_demo_mode = conn.get("demo_mode", False)
-                    model = api.plaxis_model_info(USERNAME)
-                    if model.get("success") or model.get("demo_mode"):
-                        st.session_state.plaxis_model_data = model
-                        st.session_state.plaxis_demo_mode  = model.get("demo_mode", False)
-                        if model.get("demo_mode"):
-                            st.warning("⚠️ Demo-modus: viser eksempeldata")
-                        else:
-                            st.success("✅ Tilkoblet! Modelldata lastet.")
-                        st.rerun()
-                    else:
-                        st.error(f"Feil ved lasting av modell: {model.get('error')}")
+            status_msg = st.empty()
+            with st.spinner("Kobler til Plaxis via PlaxisWorker..."):
+                resp = api.plaxis_submit_job('connect', {
+                    'session_id': USERNAME,
+                    'host': host or 'localhost',
+                    'port': port,
+                    'password': password,
+                })
+                if resp.get('error'):
+                    st.error(f"Kunne ikke opprette jobb: {resp.get('error')}")
                 else:
-                    err = conn.get('error', '')
-                    if 'plxscripting' in err.lower():
-                        st.error(
-                            "⚠️ Plaxis-tilkobling krever at backend kjører "
-                            "i Plaxis sitt Python-miljø (lokalt). "
-                            "Dette er ikke tilgjengelig på nettserveren."
-                        )
+                    job_id = resp.get('job_id')
+                    job = _poll_job(job_id, status_text=status_msg)
+                    if job.get('status') == 'done' and job.get('result', {}).get('success'):
+                        result = job['result']
+                        st.session_state.plaxis_connected = True
+                        st.session_state.plaxis_model_data = result
+                        st.success("✅ Tilkoblet! Modelldata lastet.")
+                        st.rerun()
+                    elif job.get('status') == 'timeout':
+                        st.error("❌ PlaxisWorker svarte ikke. Er den startet på maskinen med Plaxis?")
                     else:
-                        st.error(f"Tilkoblingsfeil: {err}")
+                        error = job.get('error') or job.get('result', {}).get('error', 'Ukjent feil')
+                        st.error(f"Tilkoblingsfeil: {error}")
 
     with col2:
         st.markdown("#### Modellstatus")
@@ -129,10 +159,7 @@ def show_level1():
             structs = model.get("structures", {})
             phases  = model.get("phases", [])
 
-            if st.session_state.plaxis_demo_mode:
-                st.info("🎭 Demo-modus aktiv")
-            else:
-                st.success("✅ Tilkoblet til Plaxis")
+            st.success("✅ Tilkoblet til Plaxis")
 
             # ---- Plate cards ----
             plates = structs.get("plates", [])
@@ -658,12 +685,6 @@ def show_level5():
                 st.write(f"- {pname}: {', '.join(active)}")
 
     st.markdown("---")
-    st.markdown("#### Output-innstillinger")
-    output_path    = st.text_input("Lagringsmappe",
-                                    value=os.path.expanduser("~/Documents/RamGAP_Results"))
-    generate_excel = st.checkbox("Generer Excel spuntark", value=True)
-
-    st.markdown("---")
     c1, c2 = st.columns(2)
     with c1:
         if st.button("← Forrige", use_container_width=True):
@@ -671,13 +692,73 @@ def show_level5():
             st.rerun()
     with c2:
         if st.button("🚀 Kjør beregning", type="primary", use_container_width=True):
-            _run_calculation(output_path, generate_excel)
+            _run_calculation()
 
 
 # --------------------------------------------------------------- calculation
 
-def _run_calculation(output_path: str, generate_excel: bool):
-    """Build job payload and POST to the backend /api/plaxis/run endpoint."""
+def _build_excel(msf: dict, displacement: dict, capacity: dict) -> bytes:
+    """Build an Excel workbook from extraction results and return as bytes."""
+    from io import BytesIO
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Oppsummering"
+
+    row = 1
+    # MSF
+    if msf:
+        ws.cell(row=row, column=1, value="Fase")
+        ws.cell(row=row, column=2, value="Msf")
+        row += 1
+        for phase, val in msf.items():
+            ws.cell(row=row, column=1, value=phase)
+            ws.cell(row=row, column=2, value=val)
+            row += 1
+        row += 1
+
+    # Displacement
+    if displacement:
+        for stype, objs in displacement.items():
+            for oname, ph_vals in objs.items():
+                ws.cell(row=row, column=1, value=f"Deformasjon — {oname}")
+                row += 1
+                ws.cell(row=row, column=1, value="Fase")
+                ws.cell(row=row, column=2, value="Ux (mm)")
+                row += 1
+                for phase, val in ph_vals.items():
+                    ws.cell(row=row, column=1, value=phase)
+                    ws.cell(row=row, column=2, value=val)
+                    row += 1
+                row += 1
+
+    # Capacity
+    if capacity:
+        for stype, objs in capacity.items():
+            for oname, ph_vals in objs.items():
+                ws.cell(row=row, column=1, value=f"Krefter — {oname}")
+                row += 1
+                ws.cell(row=row, column=1, value="Fase")
+                ws.cell(row=row, column=2, value="Nx (kN/m)")
+                ws.cell(row=row, column=3, value="Q (kN/m)")
+                ws.cell(row=row, column=4, value="M (kNm/m)")
+                row += 1
+                for phase, forces in ph_vals.items():
+                    ws.cell(row=row, column=1, value=phase)
+                    ws.cell(row=row, column=2, value=forces.get("Nx"))
+                    ws.cell(row=row, column=3, value=forces.get("Q"))
+                    ws.cell(row=row, column=4, value=forces.get("M"))
+                    row += 1
+                row += 1
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _run_calculation():
+    """Build job payload and submit to PlaxisWorker via job queue."""
     progress = st.progress(0)
     status   = st.empty()
 
@@ -720,70 +801,84 @@ def _run_calculation(output_path: str, generate_excel: bool):
             "displacement":   {"enabled": bool(ux_phases),  "phases": ux_phases,
                                "component": "Ux"},
         },
-        "resultsPath": {"path": output_path},
+        "resultsPath": {"path": ""},
     }
 
     project_id = None
     if st.session_state.selected_project:
         project_id = st.session_state.selected_project.get("id")
 
-    status.text("Sender beregning til Plaxis...")
+    status.text("Sender beregning til PlaxisWorker...")
     progress.progress(15)
 
-    result = api.plaxis_run({
+    resp = api.plaxis_submit_job('run', {
         "session_id":      USERNAME,
         "job":             job,
-        "project_id":      project_id,
-        "activity_name":   st.session_state.plaxis_activity_name or "Plaxis beregning",
-        "input_port":      st.session_state.plaxis_port,
-        "input_password":  st.session_state.plaxis_password,
+        "host":            st.session_state.plaxis_host or 'localhost',
+        "port":            st.session_state.plaxis_port,
+        "password":        st.session_state.plaxis_password,
         "output_port":     st.session_state.plaxis_output_port,
         "output_password": st.session_state.plaxis_output_password,
     })
 
+    if resp.get('error'):
+        progress.progress(0)
+        st.error(f"Kunne ikke opprette jobb: {resp.get('error')}")
+        return
+
+    job_result = _poll_job(resp['job_id'], status_text=status, timeout=300)
+    result = job_result.get('result', {}) if job_result.get('status') == 'done' else {}
+
     if result.get("success"):
         progress.progress(100)
         status.text("Ferdig!")
-        if result.get("demo_mode"):
-            st.info("🎭 Demo-modus: viser eksempelresultater")
         st.success("✅ Beregning fullført!")
-        if result.get("output_file") and result["output_file"] != "Demo - ingen fil generert":
-            st.info(f"📁 Resultater lagret i: {result['output_file']}")
 
         st.markdown("---")
         st.markdown("#### Resultater")
-        results = result.get("results", {})
 
-        msf = results.get("msf", {})
+        msf = result.get("msf", {})
         if msf:
             st.markdown("**Msf-verdier:**")
             st.table({"Fase": list(msf.keys()), "Msf": list(msf.values())})
 
-        disp = results.get("displacement", {})
+        disp = result.get("displacement", {})
         if disp:
             st.markdown("**Maks horisontal deformasjon:**")
             for stype, objs in disp.items():
-                for oname, phases in objs.items():
-                    st.table({"Fase": list(phases.keys()),
-                              f"{oname} Ux (mm)": list(phases.values())})
+                for oname, ph_vals in objs.items():
+                    st.table({"Fase": list(ph_vals.keys()),
+                              f"{oname} Ux (mm)": list(ph_vals.values())})
 
-        cap = results.get("capacity", {})
+        cap = result.get("capacity", {})
         if cap:
             st.markdown("**Tverrsnittskrefter:**")
             for stype, objs in cap.items():
                 if stype in ("plates", "embedded_beams"):
-                    for oname, phases in objs.items():
+                    for oname, ph_vals in objs.items():
                         st.markdown(f"*{oname}:*")
                         rows = [
                             {"Fase": pn, "Nx (kN/m)": f.get("Nx"),
                              "Q (kN/m)": f.get("Q"), "M (kNm/m)": f.get("M")}
-                            for pn, f in phases.items()
+                            for pn, f in ph_vals.items()
                         ]
                         if rows:
                             st.table(rows)
+
+        # Excel download
+        if msf or disp or cap:
+            excel_bytes = _build_excel(msf, disp, cap)
+            st.download_button(
+                "📥 Last ned Excel",
+                data=excel_bytes,
+                file_name="Plaxis_resultater.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
     else:
         progress.progress(0)
-        st.error(f"❌ Feil: {result.get('error', 'Ukjent feil')}")
+        error = (job_result.get('error') or result.get('error')
+                 or ('PlaxisWorker svarte ikke' if job_result.get('status') == 'timeout' else 'Ukjent feil'))
+        st.error(f"❌ Feil: {error}")
 
 
 # ====================================================================
@@ -1030,16 +1125,24 @@ def _run_parametric_study(combos, phases_config):
             "fos_phase":     phases_config.get("fos_phase"),
             "disp_phase":    phases_config.get("disp_phase"),
             "cap_phase":     phases_config.get("cap_phase"),
-            "input_port":    st.session_state.plaxis_port,
-            "input_password": st.session_state.plaxis_password,
+            "host":          st.session_state.plaxis_host or 'localhost',
+            "port":          st.session_state.plaxis_port,
+            "password":      st.session_state.plaxis_password,
             "output_port":   st.session_state.plaxis_output_port,
             "output_password": st.session_state.plaxis_output_password,
         }
 
         try:
-            result = api.plaxis_parametric_run(payload)
+            resp = api.plaxis_submit_job('parametric', payload)
+            if resp.get('error'):
+                result = {"success": False, "error": resp.get('error')}
+            else:
+                job = _poll_job(resp['job_id'], status_text=status, timeout=300)
+                result = job.get('result', {}) if job.get('status') == 'done' else {
+                    "success": False, "error": job.get('error', 'Tidsavbrudd')
+                }
         except Exception:
-            result = {"success": False, "error": "Endepunkt ikke tilgjengelig ennå"}
+            result = {"success": False, "error": "Kunne ikke kontakte backend"}
 
         row = {"Su (kPa)": su}
         if depth is not None:
@@ -1518,14 +1621,24 @@ def _run_water_sensitivity(wl_vals, phases_config):
             "fos_phase":       phases_config.get("fos_phase"),
             "disp_phase":      phases_config.get("disp_phase"),
             "cap_phase":       phases_config.get("cap_phase"),
+            "host":            st.session_state.plaxis_host or 'localhost',
+            "port":            st.session_state.plaxis_port,
+            "password":        st.session_state.plaxis_password,
             "output_port":     st.session_state.plaxis_output_port,
             "output_password": st.session_state.plaxis_output_password,
         }
 
         try:
-            result = api.plaxis_water_sensitivity_run(payload)
+            resp = api.plaxis_submit_job('water_sensitivity', payload)
+            if resp.get('error'):
+                result = {"success": False, "error": resp.get('error')}
+            else:
+                job = _poll_job(resp['job_id'], status_text=status, timeout=300)
+                result = job.get('result', {}) if job.get('status') == 'done' else {
+                    "success": False, "error": job.get('error', 'Tidsavbrudd')
+                }
         except Exception:
-            result = {"success": False, "error": "Endepunkt ikke tilgjengelig ennå"}
+            result = {"success": False, "error": "Kunne ikke kontakte backend"}
 
         row = {
             "Vannstand (m)":   wl,

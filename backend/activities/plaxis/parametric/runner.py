@@ -21,12 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
-try:
-    from plxscripting.easy import new_server
-    PLAXIS_AVAILABLE = True
-except ImportError:
-    new_server = None  # type: ignore[assignment]
-    PLAXIS_AVAILABLE = False
+from plxscripting.easy import new_server
 
 log = logging.getLogger(__name__)
 
@@ -208,6 +203,7 @@ def run_single_parametric(
     cap_phase: Optional[str] = None,
     output_port: Optional[int] = None,
     output_password: Optional[str] = None,
+    host: str = 'localhost',
 ) -> Dict[str, Any]:
     """Execute one parametric iteration.
 
@@ -238,9 +234,9 @@ def run_single_parametric(
     # --- 4. Connect to Output and extract results ----------------------------
     g_o = None
     try:
-        if output_port and PLAXIS_AVAILABLE:
+        if output_port:
             pwd = output_password or ''
-            _s_o, g_o = new_server('localhost', int(output_port), password=pwd)
+            _s_o, g_o = new_server(host, int(output_port), password=pwd)
     except Exception as exc:
         log.warning("Could not connect to Output server: %s", exc)
 
