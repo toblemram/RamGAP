@@ -17,6 +17,7 @@ from components.api_client import APIClient
 from components.project_map import (
     load_snd_project,
     load_snd_from_uploaded_files,
+    load_snd_from_stored_files,
     query_nadag_for_project,
     build_project_map,
     build_sounding_figure,
@@ -156,35 +157,54 @@ _TYPE_ICONS = {
 # ---------------------------------------------------------------------------
 
 def _ensure_project_geo_loaded(project: dict) -> None:
-    """Load SND boreholes from project folder and query NADAG on first open."""
+    """Load SND boreholes from project folder, backend DB, or NADAG on first open."""
     pid = project["id"]
     cache_key = f"_geo_loaded_{pid}"
 
     if st.session_state.get(cache_key):
         return  # Already loaded
 
-    folder = project.get("folder_path")
-    if not folder:
-        st.session_state[cache_key] = True
-        return
-
-    # Load SND project from folder (only works when folder is accessible)
     snd_key = f"_snd_project_{pid}"
     nadag_key = f"_nadag_df_{pid}"
 
-    if snd_key not in st.session_state:
+    # 1) Try loading from local folder
+    folder = project.get("folder_path")
+    if folder and snd_key not in st.session_state:
         from pathlib import Path
         if Path(folder).is_dir():
             with st.spinner("Laster borehull fra prosjektmappe…"):
                 snd_data = load_snd_project(folder)
                 st.session_state[snd_key] = snd_data
-
-                # Query NADAG for the project area
                 if snd_data and snd_data.get("boreholes"):
                     nadag_df = query_nadag_for_project(snd_data["boreholes"])
                     st.session_state[nadag_key] = nadag_df
                 else:
                     st.session_state[nadag_key] = None
+            st.session_state[cache_key] = True
+            return
+
+    # 2) Try loading from backend-stored files (uploaded SND/info.prj)
+    if snd_key not in st.session_state:
+        stored_files = api.get_project_files(pid)
+        if stored_files:
+            with st.spinner("Laster borehull fra lagrede filer…"):
+                snd_data = load_snd_from_stored_files(
+                    stored_files, project.get("name", "Prosjekt")
+                )
+                if snd_data and snd_data.get("boreholes"):
+                    st.session_state[snd_key] = snd_data
+                    nadag_df = query_nadag_for_project(snd_data["boreholes"])
+                    st.session_state[nadag_key] = nadag_df
+                    # Also restore raw SND contents for GeoTolk
+                    snd_contents = {
+                        f["filename"]: f["content"]
+                        for f in stored_files
+                        if f.get("file_type") == "snd"
+                    }
+                    if snd_contents:
+                        st.session_state[f"_snd_contents_{pid}"] = snd_contents
+                    st.session_state[cache_key] = True
+                    return
 
     st.session_state[cache_key] = True
 

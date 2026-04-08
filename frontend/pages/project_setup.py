@@ -75,6 +75,12 @@ with st.form("create_project_form"):
 
                 # Parse uploaded project folder files
                 if project_uploads:
+                    # Read all file contents ONCE upfront
+                    file_contents = {}
+                    for uf in project_uploads:
+                        file_contents[uf.name] = uf.read().decode("utf-8", errors="ignore")
+                        uf.seek(0)
+
                     with st.spinner("Parser prosjektfiler…"):
                         snd_data = load_snd_from_project_upload(
                             project_uploads, project_name
@@ -85,13 +91,33 @@ with st.form("create_project_form"):
                         st.session_state[f"_nadag_df_{new_id}"] = nadag_df
                         st.session_state[f"_geo_loaded_{new_id}"] = True
                         # Store raw SND contents for use in GeoTolk
-                        snd_contents = {}
-                        for uf in project_uploads:
-                            if uf.name.lower().endswith(".snd"):
-                                snd_contents[uf.name] = uf.read().decode("utf-8", errors="ignore")
-                                uf.seek(0)
+                        snd_contents = {
+                            name: content
+                            for name, content in file_contents.items()
+                            if name.lower().endswith(".snd")
+                        }
                         if snd_contents:
                             st.session_state[f"_snd_contents_{new_id}"] = snd_contents
+
+                        # Persist files to backend database
+                        db_files = []
+                        for name, content in file_contents.items():
+                            name_lower = name.lower()
+                            if name_lower.endswith(".snd"):
+                                db_files.append({
+                                    'filename': name,
+                                    'content': content,
+                                    'file_type': 'snd',
+                                })
+                            elif name_lower == 'info.prj':
+                                db_files.append({
+                                    'filename': name,
+                                    'content': content,
+                                    'file_type': 'info_prj',
+                                })
+                        if db_files:
+                            api.upload_project_files(new_id, db_files, USERNAME)
+
                         detected = snd_data.get("detected_epsg")
                         crs_label = next(
                             (k for k, v in CRS_OPTIONS.items() if v == detected), None
@@ -177,6 +203,12 @@ if projects:
             )
             if edit_upload:
                 if st.button("📥 Last inn prosjektfiler", key=f"btn_load_upload_{pid}"):
+                    # Read all file contents ONCE upfront
+                    file_contents = {}
+                    for uf in edit_upload:
+                        file_contents[uf.name] = uf.read().decode("utf-8", errors="ignore")
+                        uf.seek(0)
+
                     with st.spinner("Parser prosjektfiler…"):
                         snd_data = load_snd_from_project_upload(
                             edit_upload, project['name']
@@ -187,13 +219,33 @@ if projects:
                         st.session_state[f"_nadag_df_{pid}"] = nadag_df
                         st.session_state[f"_geo_loaded_{pid}"] = True
                         # Store raw SND contents for use in GeoTolk
-                        snd_contents = {}
-                        for uf in edit_upload:
-                            if uf.name.lower().endswith(".snd"):
-                                snd_contents[uf.name] = uf.read().decode("utf-8", errors="ignore")
-                                uf.seek(0)
+                        snd_contents = {
+                            name: content
+                            for name, content in file_contents.items()
+                            if name.lower().endswith(".snd")
+                        }
                         if snd_contents:
                             st.session_state[f"_snd_contents_{pid}"] = snd_contents
+
+                        # Persist files to backend database
+                        db_files = []
+                        for name, content in file_contents.items():
+                            name_lower = name.lower()
+                            if name_lower.endswith(".snd"):
+                                db_files.append({
+                                    'filename': name,
+                                    'content': content,
+                                    'file_type': 'snd',
+                                })
+                            elif name_lower == 'info.prj':
+                                db_files.append({
+                                    'filename': name,
+                                    'content': content,
+                                    'file_type': 'info_prj',
+                                })
+                        if db_files:
+                            api.upload_project_files(pid, db_files, USERNAME)
+
                         detected = snd_data.get("detected_epsg")
                         crs_label = next(
                             (k for k, v in CRS_OPTIONS.items() if v == detected), None

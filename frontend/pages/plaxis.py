@@ -81,6 +81,8 @@ _DEFAULTS = {
     "sa_phases_config":         {},
     "sa_results":               None,
     "sa_base_values":           {},
+    # Extract results state
+    "er_results":               None,
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -333,6 +335,9 @@ def show_level2():
         if st.button("Neste →", type="primary", use_container_width=True, disabled=not selected):
             st.session_state.plaxis_level = 3
             st.rerun()
+
+    # Show saved calculations from this project
+    _show_saved_calculations()
 
 
 # ------------------------------------------------------------------ level 3
@@ -704,6 +709,11 @@ def show_level5():
         if st.button("🚀 Kjør beregning", type="primary", use_container_width=True):
             _run_calculation()
 
+    # Show persisted results if available (survives rerun)
+    result = st.session_state.er_results
+    if result and result.get("success"):
+        _show_extract_results(result)
+
 
 # --------------------------------------------------------------- calculation
 
@@ -843,52 +853,112 @@ def _run_calculation():
         progress.progress(100)
         status.text("Ferdig!")
         st.success("✅ Beregning fullført!")
-
-        st.markdown("---")
-        st.markdown("#### Resultater")
-
-        msf = result.get("msf", {})
-        if msf:
-            st.markdown("**Msf-verdier:**")
-            st.table({"Fase": list(msf.keys()), "Msf": list(msf.values())})
-
-        disp = result.get("displacement", {})
-        if disp:
-            st.markdown("**Maks horisontal deformasjon:**")
-            for stype, objs in disp.items():
-                for oname, ph_vals in objs.items():
-                    st.table({"Fase": list(ph_vals.keys()),
-                              f"{oname} Ux (mm)": list(ph_vals.values())})
-
-        cap = result.get("capacity", {})
-        if cap:
-            st.markdown("**Tverrsnittskrefter:**")
-            for stype, objs in cap.items():
-                if stype in ("plates", "embedded_beams"):
-                    for oname, ph_vals in objs.items():
-                        st.markdown(f"*{oname}:*")
-                        rows = [
-                            {"Fase": pn, "Nx (kN/m)": f.get("Nx"),
-                             "Q (kN/m)": f.get("Q"), "M (kNm/m)": f.get("M")}
-                            for pn, f in ph_vals.items()
-                        ]
-                        if rows:
-                            st.table(rows)
-
-        # Excel download
-        if msf or disp or cap:
-            excel_bytes = _build_excel(msf, disp, cap)
-            st.download_button(
-                "📥 Last ned Excel",
-                data=excel_bytes,
-                file_name="Plaxis_resultater.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+        st.session_state.er_results = result
+        st.rerun()
     else:
         progress.progress(0)
         error = (job_result.get('error') or result.get('error')
                  or ('PlaxisWorker svarte ikke' if job_result.get('status') == 'timeout' else 'Ukjent feil'))
         st.error(f"❌ Feil: {error}")
+
+
+def _show_extract_results(result: dict):
+    """Display extract_results output with save and AI report buttons."""
+    st.markdown("---")
+    st.markdown("#### Resultater")
+
+    msf = result.get("msf", {})
+    if msf:
+        st.markdown("**Msf-verdier:**")
+        st.table({"Fase": list(msf.keys()), "Msf": list(msf.values())})
+
+    disp = result.get("displacement", {})
+    if disp:
+        st.markdown("**Maks horisontal deformasjon:**")
+        for stype, objs in disp.items():
+            for oname, ph_vals in objs.items():
+                st.table({"Fase": list(ph_vals.keys()),
+                          f"{oname} Ux (mm)": list(ph_vals.values())})
+
+    cap = result.get("capacity", {})
+    if cap:
+        st.markdown("**Tverrsnittskrefter:**")
+        for stype, objs in cap.items():
+            if stype in ("plates", "embedded_beams"):
+                for oname, ph_vals in objs.items():
+                    st.markdown(f"*{oname}:*")
+                    rows = [
+                        {"Fase": pn, "Nx (kN/m)": f.get("Nx"),
+                         "Q (kN/m)": f.get("Q"), "M (kNm/m)": f.get("M")}
+                        for pn, f in ph_vals.items()
+                    ]
+                    if rows:
+                        st.table(rows)
+
+    # Excel download
+    if msf or disp or cap:
+        excel_bytes = _build_excel(msf, disp, cap)
+        st.download_button(
+            "📥 Last ned Excel",
+            data=excel_bytes,
+            file_name="Plaxis_resultater.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    # Build flat rows for storage
+    er_rows = []
+    if msf:
+        for phase, val in msf.items():
+            er_rows.append({"type": "msf", "phase": phase, "value": val})
+    if disp:
+        for stype, objs in disp.items():
+            for oname, ph_vals in objs.items():
+                for phase, val in ph_vals.items():
+                    er_rows.append({"type": "displacement", "element": oname, "phase": phase, "Ux": val})
+    if cap:
+        for stype, objs in cap.items():
+            for oname, ph_vals in objs.items():
+                for phase, forces in ph_vals.items():
+                    er_rows.append({"type": "capacity", "element": oname, "phase": phase, **forces})
+
+    er_config = {
+        "spunts": st.session_state.plaxis_selected_spunts,
+        "anchors": st.session_state.plaxis_selected_anchors,
+        "phases": st.session_state.plaxis_selected_phases,
+    }
+
+    # Auto-save to project
+    _auto_save("extract_results", st.session_state.plaxis_activity_name, er_config, er_rows, "er")
+
+    # Show saved status
+    saved_id = st.session_state.get("er_auto_saved")
+    if saved_id:
+        summary = _build_summary("extract_results", er_config, er_rows)
+        st.success(f"✅ Lagret i prosjektet (ID: {saved_id}) — {summary}")
+
+    # AI report
+    st.markdown("---")
+    _show_ai_report_button(
+        calc_type="extract_results",
+        config=er_config,
+        results=er_rows,
+        key_prefix="er",
+    )
+
+    # Navigation
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← Endre oppsett", use_container_width=True, key="er_back"):
+            st.session_state.er_results = None
+            st.session_state.pop("er_auto_saved", None)
+            st.session_state.plaxis_level = 4
+            st.rerun()
+    with c2:
+        if st.button("🔄 Kjør på nytt", use_container_width=True, key="er_rerun"):
+            st.session_state.er_results = None
+            st.session_state.pop("er_auto_saved", None)
+            st.rerun()
 
 
 # ====================================================================
@@ -914,7 +984,10 @@ def show_para_level3():
     phases   = model.get("phases", [])
     geo      = model.get("geometry", {})
     layers   = geo.get("soil_layers", [])
-    soil_mat_names = list({l["material"] for l in layers if "material" in l})
+    # Use soil_materials from Materials detection if layer materials are empty
+    soil_mat_names = list({l["material"] for l in layers if l.get("material")})
+    if not soil_mat_names:
+        soil_mat_names = list(dict.fromkeys(geo.get("soil_materials", [])))
 
     # ---- Section 1: KS soil selection ----
     st.markdown("---")
@@ -935,6 +1008,19 @@ def show_para_level3():
     if matching_layers:
         st.info(f"Laget brukes i: {', '.join(l['name'] + ' (' + str(l['top']) + ' → ' + str(l['bottom']) + ')' for l in matching_layers)}")
 
+    # Detect strength parameter type for selected material
+    material_strength = geo.get("material_strength", {})
+    strength_type = material_strength.get(ks_soil, "unknown")
+    if strength_type == "su":
+        strength_label = "Su-verdier (kPa) — udrenert skjærstyrke"
+        strength_help = "Udrenert skjærstyrke — f.eks. '10, 15, 20, 25'"
+    elif strength_type == "c":
+        strength_label = "c'-verdier (kPa) — kohesjon (drenert)"
+        strength_help = "Effektiv kohesjon — f.eks. '5, 10, 15, 20'"
+    else:
+        strength_label = "Su / c'-verdier (kPa) — komma-separert"
+        strength_help = "Styrke-parameter — f.eks. '10, 15, 20, 25'"
+
     # Parameter variations
     st.markdown("**Parametervariasjoner for KS-lag:**")
     st.caption("Definer parameterverdi-intervall som Plaxis skal iterere over.")
@@ -946,9 +1032,9 @@ def show_para_level3():
         params["gamma_values"] = ""
 
     params["su_values"] = st.text_input(
-        "Su-verdier (kPa) — komma-separert",
+        f"{strength_label} — komma-separert",
         value=params["su_values"],
-        help="Udrenert skjærstyrke — f.eks. '10, 15, 20, 25'",
+        help=strength_help,
     )
     params["gamma_values"] = st.text_input(
         "γ'-verdier (kN/m³) — valgfritt, komma-separert",
@@ -1238,6 +1324,92 @@ def _show_ai_report_button(calc_type: str, config: dict, results: list, key_pref
             st.markdown(report)
 
 
+def _build_summary(calc_type: str, config: dict, results: list) -> str:
+    """Generate a short summary string for a calculation."""
+    if calc_type == "parametric_spunt":
+        soil = config.get("ks_soil", "?")
+        su = config.get("su_values", "")
+        plate = config.get("plate", "?")
+        depth = config.get("spunt_range", {})
+        parts = [f"Jord: {soil}"]
+        if su:
+            vals = [v.strip() for v in str(su).split(",") if v.strip()]
+            if vals:
+                parts.append(f"Su: {vals[0]}–{vals[-1]} kPa")
+        if depth:
+            d_from = depth.get("from", "")
+            d_to = depth.get("to", "")
+            if d_from and d_to:
+                parts.append(f"Dybde: {d_from}–{d_to} m")
+        parts.append(f"Spunt: {plate}")
+        return " | ".join(parts)
+
+    elif calc_type == "water_sensitivity":
+        wv = config.get("water_values", "")
+        plate = config.get("plate", "?")
+        vals = [v.strip() for v in str(wv).split(",") if v.strip()]
+        if vals:
+            return f"Vannstand: {vals[0]} til {vals[-1]} m ({len(vals)} nivåer) | Spunt: {plate}"
+        return f"Vannstandssensitivitet | Spunt: {plate}"
+
+    elif calc_type == "sensitivity_analysis":
+        params = config.get("params", [])
+        param_labels = [p.get("label", p.get("id", "?")) for p in params]
+        soil = config.get("soil_name", "?")
+        count = len(param_labels)
+        names = ", ".join(param_labels[:3])
+        if count > 3:
+            names += f" +{count - 3}"
+        return f"Sensitivitet: {names} | Jord: {soil} | {count} parametere"
+
+    elif calc_type == "extract_results":
+        spunts = config.get("spunts", [])
+        phases = config.get("phases", {})
+        active_phases = [p for p, sel in phases.items() if any(sel.values())] if isinstance(phases, dict) else []
+        analyses = set()
+        if isinstance(phases, dict):
+            for sel in phases.values():
+                for k, v in sel.items():
+                    if v:
+                        analyses.add(k)
+        return f"Uttak: {len(spunts)} spunt, {len(active_phases)} faser, {'+'.join(sorted(analyses)) or 'ingen'}"
+
+    return calc_type
+
+
+def _auto_save(calc_type: str, activity_name: str, config: dict, results: list, key_prefix: str):
+    """Auto-save calculation to project on first display. Returns saved ID or None."""
+    save_key = f"{key_prefix}_auto_saved"
+    if st.session_state.get(save_key):
+        return st.session_state[save_key]
+
+    summary = _build_summary(calc_type, config, results)
+    proj = st.session_state.selected_project
+    payload = {
+        "activity_name": activity_name or st.session_state.plaxis_activity_name or "Plaxis-beregning",
+        "username":      st.session_state.get("username", "default"),
+        "project_id":    proj.get("id") if proj else None,
+        "calc_type":     calc_type,
+        "config":        config,
+        "results":       results,
+        "summary":       summary,
+        "input_port":    st.session_state.plaxis_port,
+        "output_port":   st.session_state.plaxis_output_port,
+    }
+    try:
+        resp = api.save_plaxis_calculation(payload)
+        if resp.get("success"):
+            calc_id = resp.get("calculation_id")
+            st.session_state[save_key] = calc_id
+            st.toast(f"✅ Beregning lagret: {summary}")
+            return calc_id
+        else:
+            st.warning(f"⚠️ Lagring feilet: {resp.get('error', 'ukjent feil')}")
+    except Exception as exc:
+        st.warning(f"⚠️ Kunne ikke lagre automatisk: {exc}")
+    return None
+
+
 def _show_saved_calculations():
     """Show a list of saved calculations with an option to reload/re-run them."""
     import pandas as pd
@@ -1253,7 +1425,7 @@ def _show_saved_calculations():
         return
 
     st.markdown("---")
-    st.markdown("#### 📋 Lagrede beregninger")
+    st.markdown("#### 📋 Lagrede beregninger i prosjektet")
 
     for calc in calcs:
         calc_id = calc.get("id")
@@ -1267,15 +1439,23 @@ def _show_saved_calculations():
         calc_type = res_data.get("calc_type", "unknown")
         config    = res_data.get("config", {})
         rows      = res_data.get("rows", [])
+        summary   = res_data.get("summary", "")
 
         type_labels = {
-            "parametric_spunt": "Parametrisk spunt",
-            "water_sensitivity": "Vannstand",
-            "extract_results": "Resultatuttak",
+            "parametric_spunt": "📊 Parametrisk spunt",
+            "water_sensitivity": "💧 Vannstand",
+            "extract_results": "📥 Resultatuttak",
+            "sensitivity_analysis": "🎯 Sensitivitetsanalyse",
         }
         type_label = type_labels.get(calc_type, calc_type)
 
+        # If no stored summary, generate one on the fly
+        if not summary and config:
+            summary = _build_summary(calc_type, config, rows)
+
         with st.expander(f"**{name}** — {type_label} ({ts})", expanded=False):
+            if summary:
+                st.info(f"📝 {summary}")
             st.caption(f"ID: {calc_id} | Status: {status}")
 
             if rows:
@@ -1284,16 +1464,21 @@ def _show_saved_calculations():
 
             # Show config summary
             if config:
-                with st.popover("Vis konfigurasjon"):
+                with st.popover("⚙️ Vis konfigurasjon"):
                     st.json(config)
 
-            # Re-run button — loads config back into session state
-            if st.button("🔄 Kjør på nytt", key=f"rerun_{calc_id}"):
-                _reload_calculation(calc_type, config, rows)
+            # Re-run buttons
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("🔄 Kjør på nytt (rediger først)", key=f"rerun_{calc_id}"):
+                    _reload_calculation(calc_type, config, rows)
+            with c2:
+                if st.button("▶️ Kjør direkte", key=f"rerun_direct_{calc_id}"):
+                    _reload_calculation(calc_type, config, rows, go_to_level=4)
 
 
-def _reload_calculation(calc_type: str, config: dict, rows: list):
-    """Reload a saved calculation's config into session state and jump to its Level 3."""
+def _reload_calculation(calc_type: str, config: dict, rows: list, go_to_level: int = 3):
+    """Reload a saved calculation's config into session state and jump to the specified level."""
     st.session_state.plaxis_selected_function = calc_type
 
     if calc_type == "parametric_spunt":
@@ -1307,6 +1492,7 @@ def _reload_calculation(calc_type: str, config: dict, rows: list):
         st.session_state.para_phases_config = config.get("phases", {})
         st.session_state.para_results = None
         st.session_state.pop("para_saved_id", None)
+        st.session_state.pop("para_auto_saved", None)
 
     elif calc_type == "water_sensitivity":
         st.session_state.ws_water_values = config.get("water_values", "")
@@ -1314,6 +1500,7 @@ def _reload_calculation(calc_type: str, config: dict, rows: list):
         st.session_state.ws_phases_config = config.get("phases", {})
         st.session_state.ws_results = None
         st.session_state.pop("ws_saved_id", None)
+        st.session_state.pop("ws_auto_saved", None)
 
     elif calc_type == "sensitivity_analysis":
         st.session_state.sa_params = config.get("params", [])
@@ -1323,8 +1510,18 @@ def _reload_calculation(calc_type: str, config: dict, rows: list):
         st.session_state.sa_base_values = config.get("base_values", {})
         st.session_state.sa_results = None
         st.session_state.pop("sa_saved_id", None)
+        st.session_state.pop("sa_auto_saved", None)
 
-    st.session_state.plaxis_level = 3
+    elif calc_type == "extract_results":
+        st.session_state.plaxis_selected_function = "extract_results"
+        st.session_state.plaxis_selected_spunts = config.get("spunts", [])
+        st.session_state.plaxis_selected_anchors = config.get("anchors", [])
+        st.session_state.plaxis_selected_phases = config.get("phases", {})
+        st.session_state.er_results = None
+        st.session_state.pop("er_saved_id", None)
+        st.session_state.pop("er_auto_saved", None)
+
+    st.session_state.plaxis_level = go_to_level
     st.rerun()
 
 
@@ -1341,6 +1538,19 @@ def show_para_level5():
             st.session_state.plaxis_level = 4
             st.rerun()
         return
+
+    # Build config dict for save/report
+    para_config = {
+        "ks_soil": st.session_state.para_ks_soil,
+        "plate": st.session_state.para_spunt_plate,
+        "su_values": st.session_state.para_soil_params.get("su_values", ""),
+        "gamma_values": st.session_state.para_soil_params.get("gamma_values", ""),
+        "spunt_range": st.session_state.para_spunt_range,
+        "phases": st.session_state.para_phases_config,
+    }
+
+    # Auto-save to project
+    _auto_save("parametric_spunt", "Parametrisk spuntberegning", para_config, results, "para")
 
     df = pd.DataFrame(results)
     st.markdown("#### Resultatoversikt")
@@ -1404,34 +1614,16 @@ def show_para_level5():
     st.markdown("---")
     _show_ai_report_button(
         calc_type="parametric_spunt",
-        config={
-            "ks_soil": st.session_state.para_ks_soil,
-            "plate": st.session_state.para_spunt_plate,
-            "su_values": st.session_state.para_soil_params.get("su_values", ""),
-            "gamma_values": st.session_state.para_soil_params.get("gamma_values", ""),
-            "spunt_range": st.session_state.para_spunt_range,
-            "phases": st.session_state.para_phases_config,
-        },
+        config=para_config,
         results=results,
         key_prefix="para",
     )
 
-    # Save calculation
-    st.markdown("---")
-    _show_save_button(
-        calc_type="parametric_spunt",
-        activity_name="Parametrisk spuntberegning",
-        config={
-            "ks_soil": st.session_state.para_ks_soil,
-            "plate": st.session_state.para_spunt_plate,
-            "su_values": st.session_state.para_soil_params.get("su_values", ""),
-            "gamma_values": st.session_state.para_soil_params.get("gamma_values", ""),
-            "spunt_range": st.session_state.para_spunt_range,
-            "phases": st.session_state.para_phases_config,
-        },
-        results=results,
-        key_prefix="para",
-    )
+    # Show saved status
+    saved_id = st.session_state.get("para_auto_saved")
+    if saved_id:
+        summary = _build_summary("parametric_spunt", para_config, results)
+        st.success(f"✅ Lagret i prosjektet (ID: {saved_id}) — {summary}")
 
     # Navigation
     st.markdown("---")
@@ -1443,6 +1635,7 @@ def show_para_level5():
     with c2:
         if st.button("🔄 Kjør på nytt", use_container_width=True):
             st.session_state.para_results = None
+            st.session_state.pop("para_auto_saved", None)
             st.session_state.plaxis_level = 4
             st.rerun()
 
@@ -1466,9 +1659,9 @@ def show_ws_level3():
     phases  = model.get("phases", [])
     geo     = model.get("geometry", {})
 
-    current_wh = geo.get("water_head", 0)
-    ymax = geo.get("ymax", 3.0)
-    ymin = geo.get("ymin", -15.0)
+    current_wh = geo.get("water_head", 0) or 0
+    ymax = geo.get("ymax", 3.0) or 3.0
+    ymin = geo.get("ymin", -15.0) or -15.0
 
     # Apply any value generated by the interval tab BEFORE widgets are rendered.
     # (Streamlit forbids writing to a keyed widget's state after instantiation.)
@@ -1689,6 +1882,16 @@ def show_ws_level5():
             st.rerun()
         return
 
+    # Build config dict for save/report
+    ws_config = {
+        "water_values": st.session_state.ws_water_values,
+        "plate": st.session_state.ws_plate,
+        "phases": st.session_state.ws_phases_config,
+    }
+
+    # Auto-save to project
+    _auto_save("water_sensitivity", "Vannstandssensitivitet", ws_config, results, "ws")
+
     df = pd.DataFrame(results)
     st.markdown("#### Resultatoversikt")
     st.dataframe(df, hide_index=True, use_container_width=True)
@@ -1770,28 +1973,16 @@ def show_ws_level5():
     st.markdown("---")
     _show_ai_report_button(
         calc_type="water_sensitivity",
-        config={
-            "water_values": st.session_state.ws_water_values,
-            "plate": st.session_state.ws_plate,
-            "phases": st.session_state.ws_phases_config,
-        },
+        config=ws_config,
         results=results,
         key_prefix="ws",
     )
 
-    # Save calculation
-    st.markdown("---")
-    _show_save_button(
-        calc_type="water_sensitivity",
-        activity_name="Vannstandssensitivitet",
-        config={
-            "water_values": st.session_state.ws_water_values,
-            "plate": st.session_state.ws_plate,
-            "phases": st.session_state.ws_phases_config,
-        },
-        results=results,
-        key_prefix="ws",
-    )
+    # Show saved status
+    saved_id = st.session_state.get("ws_auto_saved")
+    if saved_id:
+        summary = _build_summary("water_sensitivity", ws_config, results)
+        st.success(f"✅ Lagret i prosjektet (ID: {saved_id}) — {summary}")
 
     # Navigation
     st.markdown("---")
@@ -1803,6 +1994,7 @@ def show_ws_level5():
     with c2:
         if st.button("🔄 Kjør på nytt", use_container_width=True, key="ws5_rerun"):
             st.session_state.ws_results = None
+            st.session_state.pop("ws_auto_saved", None)
             st.session_state.plaxis_level = 4
             st.rerun()
 
@@ -1839,7 +2031,10 @@ def show_sa_level3():
     phases  = model.get("phases", [])
     geo     = model.get("geometry", {})
     layers  = geo.get("soil_layers", [])
-    soil_mat_names = sorted({l["material"] for l in layers if "material" in l})
+    # Use soil_materials from Materials detection if layer materials are empty
+    soil_mat_names = sorted({l["material"] for l in layers if l.get("material")})
+    if not soil_mat_names:
+        soil_mat_names = sorted(dict.fromkeys(geo.get("soil_materials", [])))
 
     # ---- Section 1: Soil and plate selection ----
     st.markdown("---")
@@ -2096,6 +2291,17 @@ def show_sa_level5():
             st.rerun()
         return
 
+    # Build config dict for save/report
+    sa_config = {
+        "soil_name": st.session_state.sa_soil_name,
+        "plate": st.session_state.sa_plate,
+        "params": [p for p in st.session_state.sa_params if p["enabled"]],
+        "phases": st.session_state.sa_phases_config,
+    }
+
+    # Auto-save to project
+    _auto_save("sensitivity_analysis", "Sensitivitetsanalyse", sa_config, results, "sa")
+
     df = pd.DataFrame(results)
 
     # Display columns (hide param_type from user)
@@ -2222,30 +2428,16 @@ def show_sa_level5():
     st.markdown("---")
     _show_ai_report_button(
         calc_type="sensitivity_analysis",
-        config={
-            "soil_name": st.session_state.sa_soil_name,
-            "plate": st.session_state.sa_plate,
-            "params": [p for p in st.session_state.sa_params if p["enabled"]],
-            "phases": st.session_state.sa_phases_config,
-        },
+        config=sa_config,
         results=results,
         key_prefix="sa",
     )
 
-    # Save calculation
-    st.markdown("---")
-    _show_save_button(
-        calc_type="sensitivity_analysis",
-        activity_name="Sensitivitetsanalyse",
-        config={
-            "soil_name": st.session_state.sa_soil_name,
-            "plate": st.session_state.sa_plate,
-            "params": [p for p in st.session_state.sa_params if p["enabled"]],
-            "phases": st.session_state.sa_phases_config,
-        },
-        results=results,
-        key_prefix="sa",
-    )
+    # Show saved status
+    saved_id = st.session_state.get("sa_auto_saved")
+    if saved_id:
+        summary = _build_summary("sensitivity_analysis", sa_config, results)
+        st.success(f"✅ Lagret i prosjektet (ID: {saved_id}) — {summary}")
 
     # Navigation
     st.markdown("---")
@@ -2257,6 +2449,7 @@ def show_sa_level5():
     with c2:
         if st.button("🔄 Kjør på nytt", use_container_width=True, key="sa5_rerun"):
             st.session_state.sa_results = None
+            st.session_state.pop("sa_auto_saved", None)
             st.session_state.plaxis_level = 4
             st.rerun()
 

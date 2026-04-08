@@ -220,6 +220,8 @@ def _save_calculation():
     config_json   = data.get('config')                       # full input config
     results_json  = data.get('results')                      # list of result rows
 
+    summary = data.get('summary', '')
+
     db = get_db_session()
     try:
         calc = PlaxisCalculation(
@@ -233,6 +235,7 @@ def _save_calculation():
                 'calc_type': calc_type,
                 'config':    config_json,
                 'rows':      results_json,
+                'summary':   summary,
             }),
         )
         calc.completed_at = datetime.utcnow()

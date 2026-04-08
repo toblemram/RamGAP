@@ -26,6 +26,12 @@ from activities.plaxis_agent.routes  import plaxis_agent_bp
 _blueprint_errors: list[str] = []
 
 try:
+    from activities.quiz.routes import quiz_bp
+except Exception as _e:
+    quiz_bp = None
+    _blueprint_errors.append(f'quiz: {_e}')
+
+try:
     from activities.geogpt.routes import geogpt_bp
 except Exception as _e:
     geogpt_bp = None
@@ -54,6 +60,8 @@ app.register_blueprint(geotolk_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(modeling_bp)
 app.register_blueprint(plaxis_agent_bp)
+if quiz_bp:
+    app.register_blueprint(quiz_bp)
 if geogpt_bp:
     app.register_blueprint(geogpt_bp)
 if standarder_bp:

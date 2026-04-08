@@ -60,6 +60,32 @@ class Project(Base):
         }
 
 
+class ProjectFile(Base):
+    """Uploaded project file (SND or info.prj) stored in the database."""
+    __tablename__ = 'project_files'
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=False)
+    filename   = Column(String(500), nullable=False)
+    file_type  = Column(String(50), nullable=False)   # 'snd' | 'info_prj'
+    content    = Column(Text, nullable=False)
+    uploaded_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    uploaded_by = Column(String(255), nullable=True)
+
+    project = relationship('Project', backref='files')
+
+    def to_dict(self):
+        return {
+            'id':          self.id,
+            'project_id':  self.project_id,
+            'filename':    self.filename,
+            'file_type':   self.file_type,
+            'content':     self.content,
+            'uploaded_at': self.uploaded_at.isoformat() if self.uploaded_at else None,
+            'uploaded_by': self.uploaded_by,
+        }
+
+
 class ProjectAccess(Base):
     """Access-control record: which users can access which project."""
     __tablename__ = 'project_access'
@@ -469,4 +495,34 @@ class ModelingActivity(Base):
             'ifc_filename':   self.ifc_filename,
             'created_at':     self.created_at.isoformat() if self.created_at else None,
             'updated_at':     self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Quiz scoreboard
+# ---------------------------------------------------------------------------
+
+class QuizScore(Base):
+    """A single quiz attempt result."""
+    __tablename__ = 'quiz_scores'
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    username   = Column(String(255), nullable=False, index=True)
+    quiz_name  = Column(String(255), nullable=False, default='NS-EN 1997-1')
+    score      = Column(Integer, nullable=False)
+    total      = Column(Integer, nullable=False)
+    pct        = Column(Float, nullable=False)
+    max_streak = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            'id':         self.id,
+            'username':   self.username,
+            'quiz_name':  self.quiz_name,
+            'score':      self.score,
+            'total':      self.total,
+            'pct':        self.pct,
+            'max_streak': self.max_streak,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }

@@ -47,6 +47,12 @@ def build_connect_script(host: str, port: int, password: str) -> str:
     body = f"""\
 s_i, g_i = new_server({host!r}, {port}, password={password!r})
 
+# Must be in Staged Construction to read phases
+try:
+    g_i.gotostages()
+except Exception:
+    pass
+
 # Extract phases
 phases = []
 for ph in g_i.Phases:
@@ -152,7 +158,10 @@ if hasattr(g_i, 'FixedEndAnchors'):
 
 # Extract geometry (soil layers, water head, model extents)
 geometry = {{'soil_layers': [], 'water_head': None,
-            'xmin': None, 'xmax': None, 'ymin': None, 'ymax': None}}
+            'xmin': None, 'xmax': None, 'ymin': None, 'ymax': None,
+            'soil_materials': []}}
+
+# --- Water head from boreholes ---
 try:
     g_i.gotosoil()
     for bh in g_i.Boreholes:
@@ -164,6 +173,7 @@ try:
 except:
     pass
 
+# --- Soil layer geometry from boreholes ---
 try:
     g_i.gotosoil()
     for bh in g_i.Boreholes:
@@ -180,6 +190,56 @@ try:
                               'material': mat_name, 'top': top, 'bottom': bot}})
         geometry['soil_layers'] = layers_raw
         break
+except:
+    pass
+
+# --- Soil materials via Materials list (robust detection) ---
+def _safe_val(o):
+    return o.value if hasattr(o, 'value') else o
+
+try:
+    g_i.gotostructures()
+    materials = g_i.Materials
+    type_attr = None
+    name_attr = None
+    for mat in materials:
+        try:
+            _ = mat.TypeName.value
+            type_attr = 'TypeName'
+        except:
+            continue
+        if hasattr(mat, 'Identification'):
+            name_attr = 'Identification'
+        elif hasattr(mat, 'Name'):
+            name_attr = 'Name'
+        if type_attr and name_attr:
+            break
+    if type_attr and name_attr:
+        for mat in materials:
+            try:
+                tn = _safe_val(getattr(mat, type_attr)).lower()
+                if 'soil' in tn:
+                    soil_name = _safe_val(getattr(mat, name_attr))
+                    geometry['soil_materials'].append(soil_name)
+                    # Detect strength parameter type for this material
+                    strength = 'unknown'
+                    for su_attr in ('sURef', 'SuRef', 'su_ref'):
+                        if hasattr(mat, su_attr):
+                            strength = 'su'
+                            break
+                    if strength == 'unknown':
+                        for c_attr in ('cRef', 'cref'):
+                            if hasattr(mat, c_attr):
+                                strength = 'c'
+                                break
+                    geometry.setdefault('material_strength', {{}})[soil_name] = strength
+            except:
+                continue
+        # Patch layers that have empty material names
+        if geometry['soil_layers'] and geometry['soil_materials']:
+            for i, layer in enumerate(geometry['soil_layers']):
+                if not layer.get('material') and i < len(geometry['soil_materials']):
+                    layer['material'] = geometry['soil_materials'][i]
 except:
     pass
 
@@ -355,7 +415,7 @@ def build_parametric_script(
     body = f"""\
 s_i, g_i = new_server({host!r}, {port}, password={password!r})
 
-# Find and modify KS soil Su
+# Find and modify KS soil strength parameter
 material = None
 for mat in g_i.Materials:
     try:
@@ -368,18 +428,30 @@ if not material:
     print(json.dumps({{'success': False, 'error': 'Material not found: {ks_soil}'}}))
     sys.exit(0)
 
+# Try Su first (undrained), then cRef (drained cohesion)
 su_set = False
-for attr in ('sURef', 'SuRef', 'su_ref'):
+_attr_used = None
+for attr in ('sURef', 'SuRef', 'su_ref', 'cRef', 'cref'):
     if hasattr(material, attr):
-        getattr(material, attr).set({su})
-        su_set = True
-        break
+        try:
+            getattr(material, attr).set({su})
+            su_set = True
+            _attr_used = attr
+            break
+        except:
+            pass
 if not su_set:
-    try:
-        material.setproperties("sURef", {su})
-    except:
-        print(json.dumps({{'success': False, 'error': 'Could not set Su on material'}}))
-        sys.exit(0)
+    for prop_name in ('sURef', 'cRef'):
+        try:
+            material.setproperties(prop_name, {su})
+            su_set = True
+            _attr_used = prop_name
+            break
+        except:
+            pass
+if not su_set:
+    print(json.dumps({{'success': False, 'error': 'Material has no Su or cRef: {ks_soil}'}}))
+    sys.exit(0)
 """
 
     if depth is not None:
@@ -404,12 +476,28 @@ if plate_obj:
 """
 
     body += f"""
-# Run calculation
+# Ensure mesh is generated
 try:
-    g_i.calculate()
-except Exception as exc:
-    print(json.dumps({{'success': False, 'error': f'Calculation failed: {{exc}}'}}))
-    sys.exit(0)
+    g_i.gotomesh()
+    g_i.mesh(0.06)
+except:
+    pass
+
+# Mark all phases for recalculation and calculate one by one
+g_i.gotostages()
+for _ph in g_i.Phases:
+    try:
+        _ph.ShouldCalculate = True
+    except:
+        pass
+_calc_errors = []
+for _ph in g_i.Phases:
+    try:
+        _r = g_i.calculate(_ph)
+        if isinstance(_r, str) and 'failed' in _r.lower():
+            _calc_errors.append(_ph.Identification.value)
+    except Exception as _e:
+        _calc_errors.append(_ph.Identification.value)
 
 # Connect to output and extract results
 result = {{'success': False, 'msf': None, 'ux_max': None, 'm_max': None}}
@@ -430,13 +518,15 @@ if g_o is None:
 
 def _find_phase(g, name):
     for ph in g.Phases:
-        if ph.Identification.value == name:
+        ph_name = ph.Identification.value
+        if ph_name == name or ph_name.startswith(name + ' [') or ph_name.startswith(name + '['):
             return ph
     return None
 
 def _find_plate(g, name):
     for p in g.Plates:
-        if p.Name.value == name:
+        p_name = p.Name.value
+        if p_name == name or p_name.startswith(name + ' [') or p_name.startswith(name + '['):
             return p
     return None
 
@@ -453,7 +543,7 @@ if fos_phase_name:
             lambda: o_fos.Reached.Msf.value,
         ):
             try:
-                result['msf'] = acc()
+                result['msf'] = round(acc(), 3)
                 break
             except:
                 pass
@@ -477,7 +567,7 @@ if o_plate and disp_phase_name:
                 try:
                     vals = call_fn()
                     if vals:
-                        result['ux_max'] = max(abs(v) for v in vals)
+                        result['ux_max'] = round(max(abs(v) for v in vals) * 1000, 2)
                     break
                 except:
                     pass
@@ -499,7 +589,7 @@ if o_plate and cap_phase_name:
                 try:
                     vals = call_fn()
                     if vals:
-                        result['m_max'] = max(abs(v) for v in vals)
+                        result['m_max'] = round(max(abs(v) for v in vals), 2)
                     break
                 except:
                     pass
@@ -524,12 +614,28 @@ g_i.gotosoil()
 for bh in g_i.Boreholes:
     bh.Head.set({water_level})
 
-# Run calculation
+# Ensure mesh is generated
 try:
-    g_i.calculate()
-except Exception as exc:
-    print(json.dumps({{'success': False, 'error': f'Calculation failed: {{exc}}'}}))
-    sys.exit(0)
+    g_i.gotomesh()
+    g_i.mesh(0.06)
+except:
+    pass
+
+# Mark all phases for recalculation and calculate one by one
+g_i.gotostages()
+for _ph in g_i.Phases:
+    try:
+        _ph.ShouldCalculate = True
+    except:
+        pass
+_calc_errors = []
+for _ph in g_i.Phases:
+    try:
+        _r = g_i.calculate(_ph)
+        if isinstance(_r, str) and 'failed' in _r.lower():
+            _calc_errors.append(_ph.Identification.value)
+    except Exception as _e:
+        _calc_errors.append(_ph.Identification.value)
 
 # Connect to output
 result = {{'success': False, 'water_level': {water_level}, 'msf': None, 'ux_max': None, 'm_max': None}}
@@ -550,13 +656,15 @@ if g_o is None:
 
 def _find_phase(g, name):
     for ph in g.Phases:
-        if ph.Identification.value == name:
+        ph_name = ph.Identification.value
+        if ph_name == name or ph_name.startswith(name + ' [') or ph_name.startswith(name + '['):
             return ph
     return None
 
 def _find_plate(g, name):
     for p in g.Plates:
-        if p.Name.value == name:
+        p_name = p.Name.value
+        if p_name == name or p_name.startswith(name + ' [') or p_name.startswith(name + '['):
             return p
     return None
 
@@ -573,7 +681,7 @@ if fos_phase_name:
             lambda: o_fos.Reached.Msf.value,
         ):
             try:
-                result['msf'] = acc()
+                result['msf'] = round(acc(), 3)
                 break
             except:
                 pass
@@ -597,7 +705,7 @@ if o_plate and disp_phase_name:
                 try:
                     vals = call_fn()
                     if vals:
-                        result['ux_max'] = max(abs(v) for v in vals)
+                        result['ux_max'] = round(max(abs(v) for v in vals) * 1000, 2)
                     break
                 except:
                     pass
@@ -619,7 +727,7 @@ if o_plate and cap_phase_name:
                 try:
                     vals = call_fn()
                     if vals:
-                        result['m_max'] = max(abs(v) for v in vals)
+                        result['m_max'] = round(max(abs(v) for v in vals), 2)
                     break
                 except:
                     pass
@@ -724,12 +832,28 @@ if not attr_set:
 """
 
     body += f"""\
-# Run calculation
+# Ensure mesh is generated
 try:
-    g_i.calculate()
-except Exception as exc:
-    print(json.dumps({{'success': False, 'error': f'Calculation failed: {{exc}}'}}))
-    sys.exit(0)
+    g_i.gotomesh()
+    g_i.mesh(0.06)
+except:
+    pass
+
+# Calculate all phases in order
+g_i.gotostages()
+for _ph in g_i.Phases:
+    try:
+        _ph.ShouldCalculate = True
+    except:
+        pass
+_calc_errors = []
+for _ph in g_i.Phases:
+    try:
+        _r = g_i.calculate(_ph)
+        if isinstance(_r, str) and 'failed' in _r.lower():
+            _calc_errors.append(_ph.Identification.value)
+    except Exception as _e:
+        _calc_errors.append(_ph.Identification.value)
 
 # Connect to output and extract results
 result = {{'success': False, 'param_type': param_type, 'param_value': param_value,
@@ -751,13 +875,15 @@ if g_o is None:
 
 def _find_phase(g, name):
     for ph in g.Phases:
-        if ph.Identification.value == name:
+        ph_name = ph.Identification.value
+        if ph_name == name or ph_name.startswith(name + ' [') or ph_name.startswith(name + '['):
             return ph
     return None
 
 def _find_plate(g, name):
     for p in g.Plates:
-        if p.Name.value == name:
+        p_name = p.Name.value
+        if p_name == name or p_name.startswith(name + ' [') or p_name.startswith(name + '['):
             return p
     return None
 
@@ -775,7 +901,7 @@ if fos_phase_name:
             lambda: o_fos.Reached.Msf.value,
         ):
             try:
-                result['msf'] = acc()
+                result['msf'] = round(acc(), 3)
                 break
             except:
                 pass
@@ -800,7 +926,7 @@ if o_plate and disp_phase_name:
                 try:
                     vals = call_fn()
                     if vals:
-                        result['ux_max'] = max(abs(v) for v in vals)
+                        result['ux_max'] = round(max(abs(v) for v in vals) * 1000, 2)
                     break
                 except:
                     pass
@@ -826,7 +952,7 @@ if o_plate and cap_phase_name:
                     try:
                         vals = call_fn()
                         if vals:
-                            result[force_key] = max(abs(v) for v in vals)
+                            result[force_key] = round(max(abs(v) for v in vals), 2)
                         break
                     except:
                         pass

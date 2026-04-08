@@ -487,6 +487,95 @@ def load_snd_from_uploaded_files(
     }
 
 
+def load_snd_from_stored_files(
+    stored_files: list[dict],
+    project_name: str = "Opplastet",
+) -> dict | None:
+    """
+    Load boreholes from stored file dicts (from the database).
+
+    Each dict should have 'filename', 'content' (text), 'file_type' ('snd' | 'info_prj').
+    Returns the same dict structure as load_snd_project().
+    """
+    if not stored_files:
+        return None
+
+    info_prj_text = None
+    snd_items = []
+    for f in stored_files:
+        if f.get("file_type") == "info_prj":
+            info_prj_text = f["content"]
+        elif f.get("file_type") == "snd":
+            snd_items.append(f)
+
+    if not snd_items:
+        return None
+
+    detected_epsg = None
+    if info_prj_text:
+        try:
+            detected_epsg = _parse_epsg_from_info_prj_text(info_prj_text)
+        except Exception:
+            pass
+
+    source_epsg = detected_epsg or 25833
+
+    boreholes = []
+    errors = []
+    for item in snd_items:
+        try:
+            content = item["content"]
+            data = parse_snd_full(content)
+            lat, lon = _convert_coords(data["x"], data["y"], source_epsg)
+            if not (math.isfinite(lat) and math.isfinite(lon)
+                    and -90 <= lat <= 90 and -180 <= lon <= 180):
+                errors.append(f"{item['filename']}: Ugyldige koordinater")
+                continue
+            stem = Path(item["filename"]).stem
+            bh = {
+                "point_id": stem,
+                "file_path": None,
+                "lat": lat,
+                "lon": lon,
+                "elevation": data["z"],
+                "method_code": data.get("method_code"),
+                "method_name": data.get("method_name", "Ukjent"),
+                "date": data.get("date"),
+                "max_depth": data.get("max_depth", 0),
+            }
+            boreholes.append(bh)
+            _store_graph_data(project_name, stem, {
+                "depth": data["depth"],
+                "c2": data["c2"],
+                "c3": data.get("c3", []),
+                "c4": data.get("c4", []),
+                "spyling": data.get("spyling", []),
+                "slag": data.get("slag", []),
+            })
+        except Exception as e:
+            errors.append(f"{item['filename']}: {e}")
+
+    if not boreholes:
+        return None
+
+    coords = [(bh["lat"], bh["lon"]) for bh in boreholes]
+    if len(coords) >= 3:
+        hull = _hull_with_buffer(coords)
+        polygon = hull + [hull[0]]
+    else:
+        polygon = coords
+
+    return {
+        "project_name": project_name,
+        "folder_path": None,
+        "epsg": source_epsg,
+        "detected_epsg": detected_epsg,
+        "boreholes": boreholes,
+        "polygon": polygon,
+        "errors": errors,
+    }
+
+
 def load_snd_from_project_upload(
     uploaded_files: list,
     project_name: str = "Opplastet",

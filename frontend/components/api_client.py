@@ -120,6 +120,23 @@ class APIClient:
         )
 
     # ------------------------------------------------------------------
+    # Project files (SND + info.prj persistence)
+    # ------------------------------------------------------------------
+
+    def upload_project_files(self, project_id: int, files: list,
+                              username: str) -> dict:
+        """Save SND/info.prj file contents to the backend for persistence."""
+        return self._post(f'/api/projects/{project_id}/files', {
+            'files': files,
+            'username': username,
+        }, timeout=30)
+
+    def get_project_files(self, project_id: int) -> List[dict]:
+        """Retrieve stored SND/info.prj files for a project."""
+        result = self._get(f'/api/projects/{project_id}/files', timeout=15)
+        return result.get('files', [])
+
+    # ------------------------------------------------------------------
     # Activity log
     # ------------------------------------------------------------------
 
@@ -450,3 +467,20 @@ class APIClient:
         return self._post('/api/standarder/extract-report', {
             'file_path': file_path,
         }, timeout=60)
+
+    # ------------------------------------------------------------------
+    # Quiz scoreboard
+    # ------------------------------------------------------------------
+
+    def get_quiz_scores(self, quiz_name: str = 'NS-EN 1997-1', limit: int = 50) -> dict:
+        return self._get('/api/quiz/scores', {'quiz_name': quiz_name, 'limit': limit})
+
+    def save_quiz_score(self, username: str, score: int, total: int,
+                        max_streak: int = 0, quiz_name: str = 'NS-EN 1997-1') -> dict:
+        return self._post('/api/quiz/scores', {
+            'username': username,
+            'score': score,
+            'total': total,
+            'max_streak': max_streak,
+            'quiz_name': quiz_name,
+        })

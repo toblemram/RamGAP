@@ -2,11 +2,22 @@
 """Opplæring — kurs, quiz og opplæringsmateriell."""
 
 import time
+from datetime import timedelta
+
+import pandas as pd
 import streamlit as st
+
+from components.api_client import APIClient
+from components.auth import get_username
+
+api = APIClient()
+_USERNAME = get_username() or "Anonym"
 
 st.title("🎓 Opplæring")
 
-tab_overview, tab_quiz = st.tabs(["📚 Oversikt", "🧠 NS-EN 1997-1 Quiz"])
+tab_overview, tab_quiz, tab_scoreboard = st.tabs(
+    ["📚 Oversikt", "🧠 NS-EN 1997-1 Quiz", "🏆 Scoreboard"]
+)
 
 # ===================================================================
 # Tab 1 — Oversikt
@@ -246,77 +257,244 @@ QUESTIONS = [
 ]
 
 TIME_LIMIT = 30  # sekunder per spørsmål
+_FB_DELAY_CORRECT = 1.5  # sekunder feedback ved riktig svar
+_FB_DELAY_WRONG = 2.5  # sekunder feedback ved feil/timeout
+
+# Compat: st.fragment (>=1.37) eller st.experimental_fragment (1.33–1.36)
+_fragment = getattr(st, "fragment", None) or getattr(st, "experimental_fragment", None)
 
 
-def _init_quiz_state():
+def _init_quiz():
     """Initialize or reset quiz session state."""
-    st.session_state.quiz_active = True
+    st.session_state.quiz_phase = "active"
     st.session_state.quiz_index = 0
     st.session_state.quiz_score = 0
     st.session_state.quiz_answers = []
     st.session_state.quiz_q_start = time.time()
-    st.session_state.quiz_finished = False
     st.session_state.quiz_streak = 0
     st.session_state.quiz_max_streak = 0
+    # Rydd opp gammel state
+    for _k in ("quiz_active", "quiz_finished"):
+        st.session_state.pop(_k, None)
 
 
-def _get_highscores() -> list[dict]:
-    return st.session_state.get("quiz_highscores", [])
+@st.cache_data(ttl=30)
+def _fetch_scoreboard():
+    """Hent scoreboard fra backend (cachet 30s)."""
+    result = api.get_quiz_scores()
+    if "error" in result:
+        return [], []
+    return result.get("top_scores", []), result.get("user_bests", [])
 
 
-def _save_highscore(name: str, score: int, total: int, pct: float):
-    hs = _get_highscores()
-    hs.append({"name": name, "score": score, "total": total, "pct": pct, "time": time.strftime("%Y-%m-%d %H:%M")})
-    hs.sort(key=lambda x: (-x["pct"], -x["score"]))
-    st.session_state.quiz_highscores = hs[:20]  # keep top 20
+def _save_score_to_db(username: str, score: int, total: int, max_streak: int = 0):
+    """Lagre score til backend-databasen."""
+    result = api.save_quiz_score(
+        username=username, score=score, total=total, max_streak=max_streak
+    )
+    if "error" not in result:
+        _fetch_scoreboard.clear()
+    return result
 
 
+def _record_answer(idx: int, q: dict, choice: str):
+    """Record the user's answer and move to feedback phase."""
+    elapsed = time.time() - st.session_state.quiz_q_start
+    if elapsed > TIME_LIMIT:
+        st.session_state.quiz_answers.append({"answer": "—", "correct": False, "timeout": True})
+        st.session_state.quiz_streak = 0
+    else:
+        is_correct = choice == q["correct"]
+        st.session_state.quiz_answers.append({
+            "answer": f"{choice.upper()}) {q[choice]}",
+            "correct": is_correct,
+            "timeout": False,
+        })
+        if is_correct:
+            st.session_state.quiz_score += 1
+            st.session_state.quiz_streak += 1
+            st.session_state.quiz_max_streak = max(
+                st.session_state.quiz_max_streak, st.session_state.quiz_streak
+            )
+        else:
+            st.session_state.quiz_streak = 0
+    st.session_state.quiz_phase = "feedback"
+    st.session_state.quiz_feedback_start = time.time()
+
+
+def _record_timeout(idx: int):
+    """Record a timeout (only once per question)."""
+    if len(st.session_state.quiz_answers) <= idx:
+        st.session_state.quiz_answers.append({"answer": "—", "correct": False, "timeout": True})
+        st.session_state.quiz_streak = 0
+        st.session_state.quiz_phase = "feedback"
+        st.session_state.quiz_feedback_start = time.time()
+
+
+def _advance_question():
+    """Move to the next question, or finish the quiz."""
+    st.session_state.quiz_index += 1
+    if st.session_state.quiz_index >= len(QUESTIONS):
+        st.session_state.quiz_phase = "finished"
+    else:
+        st.session_state.quiz_phase = "active"
+        st.session_state.quiz_q_start = time.time()
+
+
+@_fragment(run_every=timedelta(seconds=1))
+def _quiz_play():
+    """Live-oppdaterende quiz-fragment — teller ned hvert sekund."""
+    phase = st.session_state.quiz_phase
+    idx = st.session_state.quiz_index
+    total = len(QUESTIONS)
+
+    # Sikkerhet: sjekk at vi ikke er forbi siste spørsmål
+    if idx >= total:
+        st.session_state.quiz_phase = "finished"
+        st.rerun(scope="app")
+        return
+
+    q = QUESTIONS[idx]
+
+    # --- Vanskelighetsgrad ---
+    if idx < 10:
+        diff_label = "🟢 Lett"
+    elif idx < 20:
+        diff_label = "🟡 Middels"
+    else:
+        diff_label = "🔴 Vanskelig"
+
+    st.markdown(f"**Spørsmål {idx + 1} / {total}** — {diff_label}")
+    st.progress((idx + 1) / total)
+
+    # --- Score-rad ---
+    answered_count = len(st.session_state.quiz_answers)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Score", f"{st.session_state.quiz_score} / {answered_count}")
+    c2.metric("Streak", f"{st.session_state.quiz_streak} 🔥")
+
+    # ===================== AKTIV FASE =====================
+    if phase == "active":
+        elapsed = time.time() - st.session_state.quiz_q_start
+        remaining = max(0, TIME_LIMIT - elapsed)
+        timed_out = remaining <= 0
+
+        # Tidtaker
+        if timed_out:
+            c3.metric("Tid", "⏰ 0s")
+        elif remaining > 15:
+            c3.metric("Tid", f"🟢 {remaining:.0f}s")
+        elif remaining > 5:
+            c3.metric("Tid", f"🟡 {remaining:.0f}s")
+        else:
+            c3.metric("Tid", f"🔴 {remaining:.0f}s")
+
+        st.progress(max(0.0, remaining / TIME_LIMIT))
+        st.markdown("---")
+        st.subheader(q["q"])
+
+        if timed_out:
+            _record_timeout(idx)
+            st.rerun()
+        else:
+            # Svar-skjema (form bevarer tilstand under auto-refresh)
+            with st.form(key=f"qf_{idx}"):
+                choice = st.radio(
+                    "Velg svar:",
+                    options=["a", "b", "c"],
+                    format_func=lambda x: f"{x.upper()}) {q[x]}",
+                    index=None,
+                    horizontal=True,
+                )
+                submitted = st.form_submit_button(
+                    "Svar ✅", type="primary", use_container_width=True
+                )
+            if submitted:
+                if choice is None:
+                    st.warning("⚠️ Velg et svar først!")
+                else:
+                    _record_answer(idx, q, choice)
+                    st.rerun()
+
+    # ===================== FEEDBACK FASE =====================
+    elif phase == "feedback":
+        c3.metric("Tid", "—")
+        st.markdown("---")
+        st.subheader(q["q"])
+
+        last = st.session_state.quiz_answers[-1]
+
+        if last["timeout"]:
+            st.error("⏰ Tiden gikk ut!")
+            st.info(f"Riktig svar: **{q['correct'].upper()}) {q[q['correct']]}**")
+        elif last["correct"]:
+            st.success("✅ Riktig!")
+        else:
+            st.error(f"❌ Feil!  Ditt svar: {last['answer']}")
+            st.info(f"Riktig svar: **{q['correct'].upper()}) {q[q['correct']]}**")
+
+        # Auto-avansering etter kort forsinkelse, eller manuell «Neste»
+        fb_elapsed = time.time() - st.session_state.quiz_feedback_start
+        delay = _FB_DELAY_CORRECT if last.get("correct") else _FB_DELAY_WRONG
+
+        if fb_elapsed >= delay:
+            _advance_question()
+            if st.session_state.quiz_phase == "finished":
+                st.rerun(scope="app")
+            else:
+                st.rerun()
+        else:
+            remaining_fb = max(0, delay - fb_elapsed)
+            st.caption(f"Neste spørsmål om {remaining_fb:.0f}s …")
+            if st.button("Neste ➡️", type="primary", use_container_width=True):
+                _advance_question()
+                if st.session_state.quiz_phase == "finished":
+                    st.rerun(scope="app")
+                else:
+                    st.rerun()
+
+
+# ===================================================================
+# Tab 2 — Quiz
+# ===================================================================
 with tab_quiz:
     st.header("🧠 NS-EN 1997-1 Quiz")
     st.caption("Test din kunnskap om Eurokode 7 – Geoteknisk prosjektering (NS-EN 1997-1:2004+A1:2013+NA:2025)")
 
-    # --- Start / Reset ---
-    if not st.session_state.get("quiz_active") and not st.session_state.get("quiz_finished"):
+    phase = st.session_state.get("quiz_phase", "start")
+
+    # --- Startskjerm ---
+    if phase == "start":
         st.markdown("""
         **Regler:**
         - 30 spørsmål med 3 alternativer (A, B, C)
         - ⏱️ 30 sekunder per spørsmål
         - Spørsmålene blir vanskeligere etter hvert
-        - 🟢 Spørsmål 1–10: Lett  |  🟡 11–20: Middels  |  🔴 21–30: Vanskelig
+        - 🟢 1–10: Lett  |  🟡 11–20: Middels  |  🔴 21–30: Vanskelig
         """)
-        col_start, col_hs = st.columns(2)
-        with col_start:
-            if st.button("🚀 Start quiz!", type="primary", use_container_width=True):
-                _init_quiz_state()
-                st.rerun()
-        with col_hs:
-            hs = _get_highscores()
-            if hs:
-                st.markdown("#### 🏆 Highscores")
-                for i, entry in enumerate(hs[:10]):
-                    medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"**{i+1}.**"
-                    st.markdown(f"{medal} **{entry['name']}** — {entry['score']}/{entry['total']} ({entry['pct']:.0f}%) — {entry['time']}")
+        st.info(f"Du er logget inn som **{_USERNAME}**. Scoren din lagres automatisk på scoreboardet.")
+        if st.button("🚀 Start quiz!", type="primary", use_container_width=True):
+            _init_quiz()
+            st.rerun()
 
-    # --- Quiz finished ---
-    elif st.session_state.get("quiz_finished"):
+    # --- Aktiv quiz (live fragment) ---
+    elif phase in ("active", "feedback"):
+        _quiz_play()
+
+    # --- Resultatskjerm ---
+    elif phase == "finished":
         score = st.session_state.quiz_score
         total = len(QUESTIONS)
         pct = score / total * 100
         streak = st.session_state.quiz_max_streak
 
-        st.markdown("---")
         st.markdown("## 🏁 Quiz ferdig!")
 
-        # Score display
         c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Score", f"{score}/{total}")
-        with c2:
-            st.metric("Prosent", f"{pct:.0f}%")
-        with c3:
-            st.metric("Lengste streak", f"{streak} 🔥")
+        c1.metric("Score", f"{score}/{total}")
+        c2.metric("Prosent", f"{pct:.0f}%")
+        c3.metric("Lengste streak", f"{streak} 🔥")
 
-        # Rating
         if pct >= 90:
             st.success("🌟 Fantastisk! Du er en Eurokode 7-ekspert!")
         elif pct >= 70:
@@ -326,148 +504,80 @@ with tab_quiz:
         else:
             st.warning("💪 Tid for å studere NS-EN 1997-1 litt grundigere!")
 
-        # Review answers
         with st.expander("📋 Se alle svar", expanded=False):
             for i, ans in enumerate(st.session_state.quiz_answers):
                 q = QUESTIONS[i]
-                difficulty = "🟢" if i < 10 else ("🟡" if i < 20 else "🔴")
+                diff = "🟢" if i < 10 else ("🟡" if i < 20 else "🔴")
                 icon = "✅" if ans["correct"] else ("⏰" if ans.get("timeout") else "❌")
-                st.markdown(f"{difficulty} **{i+1}.** {q['q']}")
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{icon} Ditt svar: **{ans['answer']}** — Riktig: **{q['correct'].upper()}) {q[q['correct']]}**")
+                st.markdown(f"{diff} **{i+1}.** {q['q']}")
+                st.markdown(
+                    f"&nbsp;&nbsp;&nbsp;&nbsp;{icon} Ditt svar: **{ans['answer']}** — "
+                    f"Riktig: **{q['correct'].upper()}) {q[q['correct']]}**"
+                )
                 if ans.get("timeout"):
                     st.markdown("&nbsp;&nbsp;&nbsp;&nbsp;_⏰ Tiden gikk ut_")
-                st.markdown("")
 
-        # Save highscore
+        # Auto-lagre score til DB (kun én gang per forsøk)
+        if not st.session_state.get("quiz_score_saved"):
+            result = _save_score_to_db(_USERNAME, score, total, streak)
+            if "error" not in result:
+                st.session_state.quiz_score_saved = True
+                st.success(f"💾 Score lagret for **{_USERNAME}**!")
+            else:
+                st.warning(f"Kunne ikke lagre score: {result.get('error', 'ukjent feil')}")
+        else:
+            st.success(f"💾 Score lagret for **{_USERNAME}**!")
+
         st.markdown("---")
-        hs_name = st.text_input("Ditt navn for highscore-listen:", key="hs_name_input",
-                                placeholder="Skriv inn navnet ditt")
-        c_save, c_retry = st.columns(2)
-        with c_save:
-            if st.button("💾 Lagre score", use_container_width=True):
-                name = hs_name.strip() or "Anonym"
-                _save_highscore(name, score, total, pct)
-                st.success(f"Score lagret for {name}!")
-        with c_retry:
-            if st.button("🔄 Prøv igjen", type="primary", use_container_width=True):
-                st.session_state.quiz_active = False
-                st.session_state.quiz_finished = False
-                st.rerun()
-
-        # Show highscores
-        hs = _get_highscores()
-        if hs:
-            st.markdown("---")
-            st.markdown("#### 🏆 Highscores")
-            for i, entry in enumerate(hs[:10]):
-                medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"**{i+1}.**"
-                st.markdown(f"{medal} **{entry['name']}** — {entry['score']}/{entry['total']} ({entry['pct']:.0f}%) — {entry['time']}")
-
-    # --- Active quiz ---
-    elif st.session_state.get("quiz_active"):
-        idx = st.session_state.quiz_index
-        total = len(QUESTIONS)
-
-        if idx >= total:
-            st.session_state.quiz_finished = True
-            st.session_state.quiz_active = False
+        if st.button("🔄 Prøv igjen", type="primary", use_container_width=True):
+            st.session_state.quiz_phase = "start"
+            st.session_state.pop("quiz_score_saved", None)
             st.rerun()
 
-        q = QUESTIONS[idx]
-        elapsed = time.time() - st.session_state.quiz_q_start
-        remaining = max(0, TIME_LIMIT - elapsed)
-        timed_out = remaining <= 0
+# ===================================================================
+# Tab 3 — Scoreboard
+# ===================================================================
+with tab_scoreboard:
+    st.header("🏆 Scoreboard")
 
-        # Difficulty indicator
-        if idx < 10:
-            diff_label = "🟢 Lett"
-        elif idx < 20:
-            diff_label = "🟡 Middels"
+    top_scores, user_bests = _fetch_scoreboard()
+
+    if st.button("🔄 Oppdater", key="refresh_sb"):
+        _fetch_scoreboard.clear()
+        st.rerun()
+
+    if not top_scores and not user_bests:
+        st.info("Ingen scores registrert ennå. Fullfør quizen for å komme på scoreboardet!")
+    else:
+        # --- Per-bruker beste score ---
+        st.subheader("👤 Beste score per bruker")
+        if user_bests:
+            for i, entry in enumerate(user_bests):
+                medal = ["🥇", "🥈", "🥉"][i] if i < 3 else f"**{i+1}.**"
+                streak_txt = f" | 🔥 {entry['max_streak']}" if entry.get("max_streak") else ""
+                ts = entry.get("created_at", "")[:10]
+                st.markdown(
+                    f"{medal} **{entry['username']}** — "
+                    f"**{entry['score']}/{entry['total']}** ({entry['pct']:.0f}%)"
+                    f"{streak_txt} — {ts}"
+                )
         else:
-            diff_label = "🔴 Vanskelig"
+            st.caption("Ingen data ennå.")
 
-        # Header
-        st.markdown(f"**Spørsmål {idx + 1}/{total}** — {diff_label}")
-        st.progress(min((idx + 1) / total, 1.0))
+        st.markdown("---")
 
-        # Score so far
-        sc1, sc2, sc3 = st.columns(3)
-        with sc1:
-            st.metric("Score", f"{st.session_state.quiz_score}/{idx}")
-        with sc2:
-            st.metric("Streak", f"{st.session_state.quiz_streak} 🔥")
-        with sc3:
-            if not timed_out:
-                color = "🟢" if remaining > 15 else ("🟡" if remaining > 5 else "🔴")
-                st.metric("Tid igjen", f"{color} {remaining:.0f}s")
-            else:
-                st.metric("Tid igjen", "🔴 0s")
-
-        # Timer bar
-        pct_remaining = remaining / TIME_LIMIT * 100
-        bar_color = "#4caf50" if remaining > 15 else ("#ff9800" if remaining > 5 else "#f44336")
-        st.markdown(
-            f'<div style="background:#e0e0e0;border-radius:4px;height:8px;margin-bottom:16px;">'
-            f'<div style="background:{bar_color};width:{pct_remaining:.1f}%;height:8px;border-radius:4px;'
-            f'transition:width 1s linear;"></div></div>',
-            unsafe_allow_html=True,
-        )
-
-        # Auto-refresh script (updates every second)
-        if not timed_out:
-            st.markdown(
-                f'<script>setTimeout(function(){{window.parent.postMessage({{isStreamlitMessage:true,type:"streamlit:setComponentValue",value:Date.now()}},"*")}},{min(int(remaining * 1000), 1000)})</script>',
-                unsafe_allow_html=True,
-            )
-
-        # Question
-        st.markdown(f"### {q['q']}")
-
-        # Handle timeout
-        if timed_out:
-            st.error("⏰ Tiden gikk ut!")
-            st.session_state.quiz_answers.append({
-                "answer": "—", "correct": False, "timeout": True
+        # --- Alle forsøk (tabell) ---
+        st.subheader("📊 Alle forsøk")
+        if top_scores:
+            df = pd.DataFrame(top_scores)
+            df = df.rename(columns={
+                "username": "Bruker",
+                "score": "Riktige",
+                "total": "Totalt",
+                "pct": "Prosent (%)",
+                "max_streak": "Streak 🔥",
+                "created_at": "Tidspunkt",
             })
-            st.session_state.quiz_streak = 0
-            st.info(f"Riktig svar: **{q['correct'].upper()}) {q[q['correct']]}**")
-            if st.button("Neste spørsmål ➡️", type="primary", use_container_width=True):
-                st.session_state.quiz_index += 1
-                st.session_state.quiz_q_start = time.time()
-                st.rerun()
-        else:
-            # Answer buttons
-            col_a, col_b, col_c = st.columns(3)
-            answered = False
-            chosen = None
-            with col_a:
-                if st.button(f"🅰️ {q['a']}", key=f"ans_a_{idx}", use_container_width=True):
-                    chosen = "a"
-                    answered = True
-            with col_b:
-                if st.button(f"🅱️ {q['b']}", key=f"ans_b_{idx}", use_container_width=True):
-                    chosen = "b"
-                    answered = True
-            with col_c:
-                if st.button(f"🅲 {q['c']}", key=f"ans_c_{idx}", use_container_width=True):
-                    chosen = "c"
-                    answered = True
-
-            if answered and chosen:
-                is_correct = chosen == q["correct"]
-                st.session_state.quiz_answers.append({
-                    "answer": f"{chosen.upper()}) {q[chosen]}",
-                    "correct": is_correct,
-                    "timeout": False,
-                })
-                if is_correct:
-                    st.session_state.quiz_score += 1
-                    st.session_state.quiz_streak += 1
-                    st.session_state.quiz_max_streak = max(
-                        st.session_state.quiz_max_streak, st.session_state.quiz_streak
-                    )
-                else:
-                    st.session_state.quiz_streak = 0
-                st.session_state.quiz_index += 1
-                st.session_state.quiz_q_start = time.time()
-                st.rerun()
+            df = df[["Bruker", "Riktige", "Totalt", "Prosent (%)", "Streak 🔥", "Tidspunkt"]]
+            df["Tidspunkt"] = df["Tidspunkt"].str[:16].str.replace("T", " ")
+            st.dataframe(df, use_container_width=True, hide_index=True)

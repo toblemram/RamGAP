@@ -1,0 +1,1 @@
+﻿{"success": false, "error": "Reply code is different from what was sent! Server might be spoofed!"}

@@ -135,6 +135,19 @@ def show_step2():
 
     # ── Option 1: Use SND files already loaded from project upload ────
     snd_contents = st.session_state.get(f"_snd_contents_{pid}") if pid else None
+
+    # If not in session state, try loading from backend
+    if not snd_contents and pid:
+        stored_files = api.get_project_files(pid)
+        snd_from_db = {
+            f["filename"]: f["content"]
+            for f in stored_files
+            if f.get("file_type") == "snd"
+        }
+        if snd_from_db:
+            snd_contents = snd_from_db
+            st.session_state[f"_snd_contents_{pid}"] = snd_contents
+
     if snd_contents:
         st.info(f"📁 Prosjektet har **{len(snd_contents)}** SND-filer lastet inn.")
         if st.button("📂 Bruk prosjekt filer", type="primary", key="geotolk_use_project_files", use_container_width=True):
@@ -310,7 +323,7 @@ def show_step3():
     if oedo_key not in st.session_state:
         st.session_state[oedo_key] = cur.get("has_oedometer", False)
     has_oedo = st.checkbox(
-        "Tolket med ødometer",
+        "Tolket med prøveserie",
         value=st.session_state[oedo_key],
         key=f"oedo_cb_{idx}",
     )
@@ -821,7 +834,7 @@ def show_poly_tolkning():
                 if oedo_poly_key not in st.session_state:
                     st.session_state[oedo_poly_key] = f.get("has_oedometer", False)
                 has_oedo = st.checkbox(
-                    "Ødometer", value=st.session_state[oedo_poly_key],
+                    "Prøveserie", value=st.session_state[oedo_poly_key],
                     key=f"oedo_pcb_{fi}",
                 )
                 st.session_state[oedo_poly_key] = has_oedo

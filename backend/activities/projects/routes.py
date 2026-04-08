@@ -21,7 +21,7 @@ from sqlalchemy import or_
 
 from core.database import get_db_session
 from core.models import (
-    Project, ProjectAccess, RecentActivity,
+    Project, ProjectAccess, ProjectFile, RecentActivity,
     PlaxisCalculation, GeoTolkSession, ModelingActivity,
 )
 
@@ -227,6 +227,60 @@ def add_access(project_id: int):
         db.add(ProjectAccess(project_id=project_id, username=username, granted_by=granted_by))
         db.commit()
         return jsonify({'success': True, 'message': f'Access granted to {username}.'}), 201
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Project files (SND + info.prj)
+# ---------------------------------------------------------------------------
+
+@projects_bp.route('/projects/<int:project_id>/files', methods=['POST'])
+def upload_project_files(project_id: int):
+    """Store uploaded SND / info.prj file contents for a project."""
+    data     = request.get_json() or {}
+    files    = data.get('files', [])  # [{filename, content, file_type}]
+    username = data.get('username', '')
+
+    if not files:
+        return jsonify({'error': 'files array is required'}), 400
+
+    db = get_db_session()
+    try:
+        # Remove any existing project files (replace on re-upload)
+        db.query(ProjectFile).filter(ProjectFile.project_id == project_id).delete()
+
+        for f in files:
+            fname = f.get('filename', '')
+            content = f.get('content', '')
+            ftype = f.get('file_type', '')
+            if fname and content and ftype in ('snd', 'info_prj'):
+                db.add(ProjectFile(
+                    project_id=project_id,
+                    filename=fname,
+                    file_type=ftype,
+                    content=content,
+                    uploaded_by=username,
+                ))
+
+        db.commit()
+        return jsonify({'success': True, 'count': len(files)}), 201
+    except Exception as exc:
+        db.rollback()
+        return jsonify({'error': str(exc)}), 500
+    finally:
+        db.close()
+
+
+@projects_bp.route('/projects/<int:project_id>/files', methods=['GET'])
+def get_project_files(project_id: int):
+    """Return all stored files for a project."""
+    db = get_db_session()
+    try:
+        files = db.query(ProjectFile).filter(
+            ProjectFile.project_id == project_id
+        ).order_by(ProjectFile.filename).all()
+        return jsonify({'files': [f.to_dict() for f in files]})
     finally:
         db.close()
 
