@@ -5,7 +5,7 @@ import streamlit as st
 from components.auth import require_username
 from components.api_client import APIClient
 from components.project_map import (
-    load_snd_from_uploaded_files,
+    load_snd_from_project_upload,
     query_nadag_for_project,
     CRS_OPTIONS,
 )
@@ -25,33 +25,31 @@ st.markdown("---")
 
 st.markdown("### Opprett nytt prosjekt")
 
-# Session state for folder picker
-if "new_project_folder" not in st.session_state:
-    st.session_state.new_project_folder = ""
-
-st.text_input(
-    "Prosjektmappe (valgfritt — kun for lokal tilgang)",
-    key="new_project_folder",
-    help="Filsti til prosjektmappen, f.eks. P:\\1234 Prosjektnavn. Valgfritt — du kan laste opp SND-filer direkte.",
-    placeholder="P:\\1234 Prosjektnavn",
+# ── Upload project folder files ───────────────────────────────────────
+st.markdown("#### 📂 Last opp prosjektmappe")
+st.caption(
+    "Velg alle filene fra prosjektmappen (inkl. AUTOGRAF.DBF-mappen med SND-filer og Info.prj). "
+    "SND-filer brukes til borehullkart, Info.prj til å bestemme koordinatsystem."
 )
-
-# SND file uploader (works on Azure too)
-st.markdown("#### 📂 Last opp SND-filer")
-st.caption("Last opp SND-filer slik at prosjektoversikten viser borehullkartet med en gang.")
-snd_uploads = st.file_uploader(
-    "Velg SND-filer",
-    type=["snd"],
+project_uploads = st.file_uploader(
+    "Velg filer fra prosjektmappen",
     accept_multiple_files=True,
-    key="new_project_snd_files",
+    key="new_project_folder_files",
 )
 
-# CRS selector (for uploaded files)
-if snd_uploads:
-    selected_crs = st.selectbox(
-        "Koordinatsystem", options=list(CRS_OPTIONS.keys()),
-        index=list(CRS_OPTIONS.values()).index(25833),
-        key="new_project_crs",
+# Show what was found in the upload
+_upload_info = {"snd_count": 0, "has_info_prj": False}
+if project_uploads:
+    for uf in project_uploads:
+        name_lower = uf.name.lower()
+        if name_lower.endswith(".snd"):
+            _upload_info["snd_count"] += 1
+        elif name_lower == "info.prj":
+            _upload_info["has_info_prj"] = True
+    st.info(
+        f"📁 {len(project_uploads)} filer lastet opp  •  "
+        f"**{_upload_info['snd_count']}** SND-filer  •  "
+        f"Info.prj: {'✅' if _upload_info['has_info_prj'] else '❌ (bruker standard UTM33)'}"
     )
 
 with st.form("create_project_form"):
@@ -68,32 +66,43 @@ with st.form("create_project_form"):
             st.error("Prosjektnavn er påkrevd")
         else:
             allowed_users = [u.strip() for u in allowed_users_input.split(",") if u.strip()]
-            project_folder = st.session_state.new_project_folder
 
-            result = api.create_project(project_name, project_description, USERNAME, allowed_users, project_folder)
+            result = api.create_project(project_name, project_description, USERNAME, allowed_users, "")
 
             if result.get("id") or result.get("project"):
                 new_id = result.get("id") or result["project"].get("id")
                 st.success(f"✅ Prosjekt '{project_name}' opprettet!")
 
-                # Parse uploaded SND files and store in session state
-                if snd_uploads:
-                    epsg = CRS_OPTIONS.get(
-                        st.session_state.get("new_project_crs", ""), 25833
-                    )
-                    with st.spinner("Parser SND-filer…"):
-                        snd_data = load_snd_from_uploaded_files(
-                            snd_uploads, project_name, epsg
+                # Parse uploaded project folder files
+                if project_uploads:
+                    with st.spinner("Parser prosjektfiler…"):
+                        snd_data = load_snd_from_project_upload(
+                            project_uploads, project_name
                         )
                     if snd_data and snd_data.get("boreholes"):
                         st.session_state[f"_snd_project_{new_id}"] = snd_data
-                        # Also query NADAG for the area
                         nadag_df = query_nadag_for_project(snd_data["boreholes"])
                         st.session_state[f"_nadag_df_{new_id}"] = nadag_df
                         st.session_state[f"_geo_loaded_{new_id}"] = True
-                        st.success(
-                            f"📍 {len(snd_data['boreholes'])} borehull lastet inn"
-                        )
+                        # Store raw SND contents for use in GeoTolk
+                        snd_contents = {}
+                        for uf in project_uploads:
+                            if uf.name.lower().endswith(".snd"):
+                                snd_contents[uf.name] = uf.read().decode("utf-8", errors="ignore")
+                                uf.seek(0)
+                        if snd_contents:
+                            st.session_state[f"_snd_contents_{new_id}"] = snd_contents
+                        detected = snd_data.get("detected_epsg")
+                        crs_label = next(
+                            (k for k, v in CRS_OPTIONS.items() if v == detected), None
+                        ) if detected else None
+                        msg = f"📍 {len(snd_data['boreholes'])} borehull lastet inn"
+                        if crs_label:
+                            msg += f"  •  CRS fra Info.prj: {crs_label}"
+                        st.success(msg)
+                        if snd_data.get("errors"):
+                            for err in snd_data["errors"]:
+                                st.caption(f"⚠️ {err}")
 
                 _cached_projects.clear()
                 st.rerun()
@@ -159,37 +168,42 @@ if projects:
                 key=folder_key,
             )
 
-            # SND file upload for existing project
-            st.markdown("##### 📂 Last opp SND-filer")
-            edit_snd = st.file_uploader(
-                "Velg SND-filer",
-                type=["snd"],
+            # ── Last opp prosjektmappe ────────────────────────────
+            st.markdown("##### 📂 Last opp prosjektmappe")
+            edit_upload = st.file_uploader(
+                "Velg filer fra prosjektmappen (SND-filer + Info.prj)",
                 accept_multiple_files=True,
-                key=f"edit_snd_{pid}",
+                key=f"edit_upload_{pid}",
             )
-            if edit_snd:
-                edit_crs = st.selectbox(
-                    "Koordinatsystem",
-                    options=list(CRS_OPTIONS.keys()),
-                    index=list(CRS_OPTIONS.values()).index(25833),
-                    key=f"edit_crs_{pid}",
-                )
-                if st.button("📥 Last inn SND-filer", key=f"btn_load_snd_{pid}"):
-                    epsg = CRS_OPTIONS[edit_crs]
-                    with st.spinner("Parser SND-filer…"):
-                        snd_data = load_snd_from_uploaded_files(
-                            edit_snd, project['name'], epsg
+            if edit_upload:
+                if st.button("📥 Last inn prosjektfiler", key=f"btn_load_upload_{pid}"):
+                    with st.spinner("Parser prosjektfiler…"):
+                        snd_data = load_snd_from_project_upload(
+                            edit_upload, project['name']
                         )
                     if snd_data and snd_data.get("boreholes"):
                         st.session_state[f"_snd_project_{pid}"] = snd_data
                         nadag_df = query_nadag_for_project(snd_data["boreholes"])
                         st.session_state[f"_nadag_df_{pid}"] = nadag_df
                         st.session_state[f"_geo_loaded_{pid}"] = True
-                        st.success(
-                            f"📍 {len(snd_data['boreholes'])} borehull lastet inn"
-                        )
+                        # Store raw SND contents for use in GeoTolk
+                        snd_contents = {}
+                        for uf in edit_upload:
+                            if uf.name.lower().endswith(".snd"):
+                                snd_contents[uf.name] = uf.read().decode("utf-8", errors="ignore")
+                                uf.seek(0)
+                        if snd_contents:
+                            st.session_state[f"_snd_contents_{pid}"] = snd_contents
+                        detected = snd_data.get("detected_epsg")
+                        crs_label = next(
+                            (k for k, v in CRS_OPTIONS.items() if v == detected), None
+                        ) if detected else None
+                        msg = f"📍 {len(snd_data['boreholes'])} borehull lastet inn"
+                        if crs_label:
+                            msg += f"  •  CRS fra Info.prj: {crs_label}"
+                        st.success(msg)
                     else:
-                        st.warning("Ingen gyldige SND-borehull funnet i filene.")
+                        st.warning("Ingen gyldige SND-filer funnet blant opplastede filer.")
 
             if st.button("💾 Lagre endringer", key=f"save_project_{pid}", type="primary"):
                 updates = {}

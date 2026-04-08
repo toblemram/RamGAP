@@ -70,7 +70,7 @@ _BLUEPRINT_TAGS = {
     'geotolk': 'GeoTolk',
     'projects': 'Projects',
     'modeling': 'Modeling',
-    'plaxis_agent': 'Plaxis Agent',
+    'plaxis_agent': 'GAPI',
     'geogpt': 'GeoGPT',
     'standarder': 'Standarder',
 }

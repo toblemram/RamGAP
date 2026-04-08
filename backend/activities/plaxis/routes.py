@@ -32,6 +32,7 @@ from activities.plaxis.script_builder import (
     build_run_script,
     build_parametric_script,
     build_water_sensitivity_script,
+    build_sensitivity_script,
 )
 
 plaxis_bp = Blueprint('plaxis', __name__, url_prefix='/api/plaxis')
@@ -379,6 +380,13 @@ _BUILDERS = {
                              d['host'], int(d['port']), d['password'],
                              d.get('output_port'), d.get('output_password'),
                              float(d['water_level']), d.get('plate'),
+                             d.get('fos_phase'), d.get('disp_phase'),
+                             d.get('cap_phase')),
+    'sensitivity':       lambda d: build_sensitivity_script(
+                             d['host'], int(d['port']), d['password'],
+                             d.get('output_port'), d.get('output_password'),
+                             d['param_type'], float(d['param_value']),
+                             d.get('soil_name'), d.get('plate'),
                              d.get('fos_phase'), d.get('disp_phase'),
                              d.get('cap_phase')),
 }

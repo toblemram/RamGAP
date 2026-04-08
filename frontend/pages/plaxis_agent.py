@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-Plaxis Agent — AI-drevet kodeassistent for PLAXIS
-===================================================
+GAPI — AI-drevet kodeassistent for PLAXIS
+==========================================
 Todelt layout:
   VENSTRE: Chat med agenten
   HØYRE:   Funn-panel — viser strukturerte resultater fra agenten.
            Brukeren kan velge (klikke) på elementer, og valgte elementer
            blir inkludert som kontekst i neste prompt.
+
+All kodekjøring går gjennom PlaxisWorker slik at GAPI fungerer
+nav
+år backend er hostet i Azure.
 """
 
 import re
@@ -17,7 +21,7 @@ from components.api_client import APIClient
 # Initialisering
 # ---------------------------------------------------------------------------
 
-st.title("🤖 Plaxis Agent")
+st.title("🤖 GAPI")
 api = APIClient()
 
 # Session state defaults
@@ -41,7 +45,7 @@ for k, v in _defaults.items():
 # ---------------------------------------------------------------------------
 
 if not st.session_state.pa_connected:
-    st.info("Koble til PLAXIS for å starte agenten.")
+    st.info("Koble til PLAXIS for å starte GAPI. Sørg for at **PlaxisWorker** kjører på maskinen din.")
 
     with st.container(border=True):
         st.subheader("🔌 Koble til PLAXIS")
@@ -78,11 +82,10 @@ if not st.session_state.pa_connected:
                     st.rerun()
                 else:
                     err = res.get("error", "Tilkobling feilet")
-                    if 'plxscripting' in err.lower():
+                    if 'tidsavbrudd' in err.lower() or 'plaxisworker' in err.lower():
                         st.error(
-                            "⚠️ Plaxis-tilkobling krever at backend kjører "
-                            "i Plaxis sitt Python-miljø (lokalt). "
-                            "Dette er ikke tilgjengelig på nettserveren."
+                            "⚠️ PlaxisWorker svarte ikke. "
+                            "Sørg for at PlaxisWorker kjører og er koblet til riktig backend-URL."
                         )
                     else:
                         st.error(err)

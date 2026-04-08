@@ -627,3 +627,269 @@ if o_plate and cap_phase_name:
 result['success'] = True
 print(json.dumps(result))"""
     return _wrap(body)
+
+
+# ---------------------------------------------------------------------------
+# Sensitivity analysis script
+# ---------------------------------------------------------------------------
+
+def build_sensitivity_script(
+    host: str, port: int, password: str,
+    output_port: Optional[int], output_password: Optional[str],
+    param_type: str, param_value: float,
+    soil_name: Optional[str], plate: Optional[str],
+    fos_phase: Optional[str], disp_phase: Optional[str], cap_phase: Optional[str],
+) -> str:
+    """Script that runs one sensitivity iteration.
+
+    *param_type* is one of: 'su', 'phi', 'cohesion', 'gamma', 'eref',
+    'water_level', 'plate_depth'.
+    *param_value* is the value to set for the given parameter.
+    *soil_name* is the material name in Plaxis to modify (not needed for
+    water_level/plate_depth).
+    """
+    # Map param_type to Plaxis material attribute names (multiple candidates)
+    _ATTR_MAP: Dict[str, List[str]] = {
+        'su':       ['sURef', 'SuRef', 'su_ref', 'cRef', 'cref'],
+        'phi':      ['phi', 'phiRef', 'phi0'],
+        'cohesion': ['cRef', 'cref', 'Cohesion', 'cRefPrime'],
+        'gamma':    ['gammaUnsat', 'gammaSat', 'gamma'],
+        'eref':     ['Eref', 'E50ref', 'EoedRef', 'EurRef', 'Gref'],
+    }
+
+    body = f"""\
+s_i, g_i = new_server({host!r}, {port}, password={password!r})
+
+param_type = {param_type!r}
+param_value = {param_value}
+"""
+    if param_type == 'water_level':
+        body += f"""\
+# Set water head on all boreholes
+g_i.gotosoil()
+for bh in g_i.Boreholes:
+    bh.Head.set(param_value)
+"""
+    elif param_type == 'plate_depth':
+        body += f"""\
+# Adjust plate depth
+plate_obj = None
+for p in g_i.Plates:
+    try:
+        if p.Name.value == {plate!r}:
+            plate_obj = p
+            break
+    except:
+        pass
+if plate_obj:
+    line = plate_obj.Parent.value
+    p1 = line.First.value
+    p2 = line.Second.value
+    if p1.y.value < p2.y.value:
+        p1.y.set(param_value)
+    else:
+        p2.y.set(param_value)
+"""
+    else:
+        attrs = _ATTR_MAP.get(param_type, [param_type])
+        body += f"""\
+# Modify soil parameter
+material = None
+for mat in g_i.Materials:
+    try:
+        if mat.Identification.value == {soil_name!r}:
+            material = mat
+            break
+    except:
+        pass
+if not material:
+    print(json.dumps({{'success': False, 'error': 'Material not found: {soil_name}'}}))
+    sys.exit(0)
+
+attr_set = False
+for attr in {attrs!r}:
+    if hasattr(material, attr):
+        try:
+            getattr(material, attr).set(param_value)
+            attr_set = True
+            break
+        except:
+            pass
+if not attr_set:
+    try:
+        material.setproperties({attrs[0]!r}, param_value)
+    except:
+        print(json.dumps({{'success': False, 'error': 'Could not set {{param_type}} on material'}}))
+        sys.exit(0)
+"""
+
+    body += f"""\
+# Run calculation
+try:
+    g_i.calculate()
+except Exception as exc:
+    print(json.dumps({{'success': False, 'error': f'Calculation failed: {{exc}}'}}))
+    sys.exit(0)
+
+# Connect to output and extract results
+result = {{'success': False, 'param_type': param_type, 'param_value': param_value,
+           'msf': None, 'ux_max': None, 'm_max': None, 'q_max': None, 'n_max': None}}
+g_o = None
+output_port = {output_port!r}
+output_password = {output_password!r} or {password!r}
+if output_port:
+    try:
+        _s_o, g_o = new_server({host!r}, int(output_port), password=output_password)
+    except:
+        pass
+
+if g_o is None:
+    result['success'] = True
+    result['error'] = 'Calc ran but no Output connection'
+    print(json.dumps(result))
+    sys.exit(0)
+
+def _find_phase(g, name):
+    for ph in g.Phases:
+        if ph.Identification.value == name:
+            return ph
+    return None
+
+def _find_plate(g, name):
+    for p in g.Plates:
+        if p.Name.value == name:
+            return p
+    return None
+
+fos_phase_name = {fos_phase!r}
+disp_phase_name = {disp_phase!r}
+cap_phase_name = {cap_phase!r}
+
+# MSF / FoS
+if fos_phase_name:
+    o_fos = _find_phase(g_o, fos_phase_name)
+    if o_fos:
+        for acc in (
+            lambda: o_fos.Reached.SumMsf.value,
+            lambda: o_fos.Reached.MsfReached.value,
+            lambda: o_fos.Reached.Msf.value,
+        ):
+            try:
+                result['msf'] = acc()
+                break
+            except:
+                pass
+
+o_plate = _find_plate(g_o, {plate!r}) if {plate!r} else None
+
+# Displacement
+if o_plate and disp_phase_name:
+    o_disp = _find_phase(g_o, disp_phase_name)
+    if o_disp:
+        rt = None
+        if hasattr(g_o.ResultTypes, 'Plate'):
+            for attr in ('Ux', 'Ux2D'):
+                if hasattr(g_o.ResultTypes.Plate, attr):
+                    rt = getattr(g_o.ResultTypes.Plate, attr)
+                    break
+        if rt:
+            for call_fn in (
+                lambda: g_o.getresults(o_plate, o_disp, rt, 'node'),
+                lambda: g_o.getresults(o_disp, rt, 'node', o_plate),
+            ):
+                try:
+                    vals = call_fn()
+                    if vals:
+                        result['ux_max'] = max(abs(v) for v in vals)
+                    break
+                except:
+                    pass
+
+# Forces (moment, shear, axial)
+if o_plate and cap_phase_name:
+    o_cap = _find_phase(g_o, cap_phase_name)
+    if o_cap and hasattr(g_o.ResultTypes, 'Plate'):
+        rt_plate = g_o.ResultTypes.Plate
+        for force_key, candidates in [('m_max', ['M2D','M','Mx']),
+                                       ('q_max', ['Q2D','Q','Qx']),
+                                       ('n_max', ['Nx2D','N','Nx'])]:
+            rtype = None
+            for c in candidates:
+                if hasattr(rt_plate, c):
+                    rtype = getattr(rt_plate, c)
+                    break
+            if rtype:
+                for call_fn in (
+                    lambda rt=rtype: g_o.getresults(o_plate, o_cap, rt, 'node'),
+                    lambda rt=rtype: g_o.getresults(o_cap, rt, 'node', o_plate),
+                ):
+                    try:
+                        vals = call_fn()
+                        if vals:
+                            result[force_key] = max(abs(v) for v in vals)
+                        break
+                    except:
+                        pass
+
+result['success'] = True
+print(json.dumps(result))"""
+    return _wrap(body)
+
+
+# ---------------------------------------------------------------------------
+# Agent scripts (GAPI)
+# ---------------------------------------------------------------------------
+
+def build_agent_test_script(host: str, port: int, password: str) -> str:
+    """Script that tests the Plaxis connection and returns project name."""
+    body = f"""\
+s_i, g_i = new_server({host!r}, {port}, password={password!r})
+project_name = ''
+try:
+    project_name = g_i.Project.Name.value
+except Exception:
+    project_name = '(tilkoblet)'
+print(json.dumps({{'success': True, 'project': project_name}}))"""
+    return _wrap(body)
+
+
+def build_agent_exec_script(
+    host: str,
+    port: int,
+    password: str,
+    output_port: int | None,
+    output_password: str | None,
+    agent_code: str,
+) -> str:
+    """
+    Wrap agent-generated code into a self-contained script for PlaxisWorker.
+
+    The agent code expects variables ``g``, ``s``, ``g_o``, ``s_o`` to exist.
+    This wrapper creates the Plaxis connection, runs the agent code in an
+    exec() call, captures stdout, and returns the result as JSON.
+    """
+    import base64
+    encoded = base64.b64encode(agent_code.encode("utf-8")).decode("ascii")
+
+    out_port = output_port or (port + 1)
+    out_pwd = output_password or password
+
+    body = f"""\
+import base64, io, contextlib
+
+s, g = new_server({host!r}, {port}, password={password!r})
+s_o, g_o = new_server({host!r}, {out_port}, password={out_pwd!r})
+
+_code = base64.b64decode('{encoded}').decode('utf-8')
+_namespace = {{'g': g, 's': s, 'g_o': g_o, 's_o': s_o}}
+_buf = io.StringIO()
+
+try:
+    with contextlib.redirect_stdout(_buf):
+        exec(_code, _namespace)
+    _output = _buf.getvalue()
+    print(json.dumps({{'success': True, 'output': _output}}))
+except Exception as _exc:
+    _output = _buf.getvalue()
+    print(json.dumps({{'success': False, 'output': _output, 'error': str(_exc)}}))"""
+    return _wrap(body)

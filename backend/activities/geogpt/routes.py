@@ -39,9 +39,11 @@ _DEPLOYMENT = os.getenv('GEOGPT_DEPLOYMENT') or os.getenv('AZURE_OPENAI_DEPLOYME
 _SYSTEM_PROMPT = os.getenv(
     'GEOGPT_SYSTEM_PROMPT',
     'Du er GeoGPT, en ekspert-assistent for geoteknikk. Svar alltid på norsk. '
-    'Baser svarene dine på kunnskapsbasen som er gitt som kontekst. '
-    'Hvis du ikke finner svaret i konteksten, si det og gi ditt beste svar '
-    'basert på generell geoteknisk kunnskap. Vær presis og bruk fagterminologi.'
+    'Baser svarene dine på dokumentene gitt som kontekst. '
+    'Gi korte, presise svar med fagterminologi. Bruk punktlister der det passer. '
+    'Unngå lange innledninger — gå rett på sak. '
+    'Hvis konteksten ikke dekker spørsmålet, si kort fra og gi et konsist svar '
+    'basert på generell geoteknisk kunnskap.'
 )
 
 # Azure AI Search settings
@@ -303,62 +305,26 @@ def delete_knowledge(entry_id: str):
 
 
 # ------------------------------------------------------------------
-# Chat (AI-powered with knowledge base as context)
+# Chat (AI-powered with document search context)
 # ------------------------------------------------------------------
 
-def _find_relevant_entries(question: str, entries: list, max_results: int = 5) -> list:
-    """Score entries by keyword overlap and return top matches."""
-    words = set(question.lower().split())
-    scored = []
-    for entry in entries:
-        entry_text = (
-            entry.get('question', '') + ' ' +
-            entry.get('answer', '') + ' ' +
-            ' '.join(entry.get('tags', []))
-        ).lower()
-        overlap = sum(1 for w in words if w in entry_text)
-        if overlap > 0:
-            scored.append((overlap, entry))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [s[1] for s in scored[:max_results]]
-
-
-def _build_context(entries: list, search_docs: list) -> str:
-    """Build a context string from knowledge entries + search results for the AI."""
-    parts = []
-
-    # JSON knowledge base entries
-    if entries:
-        parts.append("=== KUNNSKAPSBASE ===")
-        for i, e in enumerate(entries, 1):
-            parts.append(
-                f"[KB-{i}] Spørsmål: {e['question']}\n"
-                f"    Kategori: {e.get('category', '?')}\n"
-                f"    Svar: {e['answer']}"
-            )
-
-    # Azure AI Search document results
-    if search_docs:
-        parts.append("\n=== DOKUMENTER (Azure AI Search) ===")
-        for i, doc in enumerate(search_docs, 1):
-            title = doc.get('title') or doc.get('source', 'Ukjent')
-            content = doc.get('content', '')[:2000]  # Trim long docs
-            parts.append(f"[DOC-{i}] {title}\n{content}")
-
-    if not parts:
-        return "Ingen relevante oppføringer funnet i kunnskapsbasen."
-
-    return "\n\n".join(parts)
+_MAX_HISTORY_TURNS = 10  # Keep last N exchanges to limit token usage
 
 
 @geogpt_bp.route('/chat', methods=['POST'])
 def chat():
-    """AI-powered chat with document search context (RAG)."""
+    """AI-powered chat with document search context (RAG) and conversation history."""
     body = request.get_json() or {}
     question = body.get('question', '').strip()
 
     if not question:
         return jsonify({'error': 'Ingen spørsmål oppgitt'}), 400
+
+    # Conversation history from the frontend (optional)
+    history = body.get('history', [])
+    # Keep only the last N turns to limit token usage
+    if len(history) > _MAX_HISTORY_TURNS * 2:
+        history = history[-_MAX_HISTORY_TURNS * 2:]
 
     # Search Azure AI Search index
     search_docs, search_error = _search_documents(question)
@@ -366,7 +332,7 @@ def chat():
     # Try AI-powered response
     client = _get_ai_client()
     if client:
-        # Build context from search results only (documents are the source of truth)
+        # Build context from search results
         if search_docs:
             parts = ["=== DOKUMENTER ==="]
             for i, doc in enumerate(search_docs, 1):
@@ -377,15 +343,23 @@ def chat():
         else:
             context = "Ingen dokumenter funnet i søkeindeksen for dette spørsmålet."
 
+        # Build message list: system + history + current question
         messages = [
             {"role": "system", "content": f"{_SYSTEM_PROMPT}\n\n--- KONTEKST ---\n{context}"},
-            {"role": "user", "content": question},
         ]
+        # Append prior conversation turns (only role + content)
+        for turn in history:
+            role = turn.get('role')
+            content = turn.get('content', '')
+            if role in ('user', 'assistant') and content:
+                messages.append({"role": role, "content": content})
+        # Current question (always the last user message)
+        messages.append({"role": "user", "content": question})
+
         try:
             response = client.chat.completions.create(
                 model=_DEPLOYMENT,
-                messages=messages
-              
+                messages=messages,
             )
             ai_answer = response.choices[0].message.content
             documents = []
@@ -405,13 +379,10 @@ def chat():
         except Exception as exc:
             print(f'GeoGPT AI error: {exc}')
             return jsonify({
-                'answer': f'AI-feil: {exc}. Sjekk at AZURE_OPENAI_DEPLOYMENT er satt riktig i .env.',
-                'documents': [],
-                'ai_powered': False,
-                'search_error': search_error,
-            })
+                'error': 'Kunne ikke generere svar. Sjekk AI-konfigurasjonen.',
+            }), 502
 
-    # No AI configured — return search error or note
+    # No AI configured — return search results or helpful message
     if search_error:
         return jsonify({
             'answer': f'⚠️ {search_error}',

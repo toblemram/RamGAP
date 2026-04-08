@@ -130,9 +130,40 @@ def show_step2():
     st.markdown("### Steg 2 – Last opp SND-filer")
 
     project = st.session_state.selected_project
+    pid = project.get("id") if project else None
     folder_path = project.get("folder_path") if project else None
 
-    # Only show "fetch from project folder" if the folder is actually accessible
+    # ── Option 1: Use SND files already loaded from project upload ────
+    snd_contents = st.session_state.get(f"_snd_contents_{pid}") if pid else None
+    if snd_contents:
+        st.info(f"📁 Prosjektet har **{len(snd_contents)}** SND-filer lastet inn.")
+        if st.button("📂 Bruk prosjekt filer", type="primary", key="geotolk_use_project_files", use_container_width=True):
+            files_data = []
+            progress = st.progress(0, text="Parser SND-filer…")
+            snd_items = sorted(snd_contents.items())
+            for i, (filename, content) in enumerate(snd_items):
+                progress.progress((i + 1) / len(snd_items), text=f"Parser {filename} ({i+1}/{len(snd_items)})")
+                res = api.geotolk_parse(content)
+                if res.get("success"):
+                    files_data.append({
+                        "filename":    filename,
+                        "content":     content,
+                        "parsed_data": res["data"],
+                        "layers":      [],
+                        "status":      "pending",
+                    })
+                else:
+                    st.warning(f"Kunne ikke parse {filename}: {res.get('error')}")
+            progress.empty()
+
+            if files_data:
+                st.success(f"✅ {len(files_data)} filer hentet fra prosjektet")
+                for f in files_data:
+                    depth = f["parsed_data"].get("max_depth", 0)
+                    st.write(f"• {f['filename']} – Max dybde: {depth:.2f} m")
+                st.session_state.geotolk_files = files_data
+
+    # ── Option 2: Fetch from local project folder (only if accessible) ──
     from_project = False
     if folder_path:
         from pathlib import Path as _P

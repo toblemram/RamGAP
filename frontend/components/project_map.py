@@ -283,25 +283,33 @@ def _detect_epsg_from_project(folder: Path) -> int | None:
         prj = search_dir / "Info.prj"
         if prj.is_file():
             try:
-                lines = prj.read_text(encoding="utf-8", errors="ignore").splitlines()
-                for ln in lines:
-                    parts = ln.strip().split()
-                    if len(parts) >= 5:
-                        try:
-                            code = int(parts[4])
-                            if code == 29 and len(parts) >= 6:
-                                zone_offset = int(parts[5])
-                                ntm_zone = 5 + zone_offset
-                                if 5 <= ntm_zone <= 30:
-                                    return 5100 + ntm_zone
-                            elif code == 22:
-                                return 25832
-                            elif code == 23:
-                                return 25833
-                        except ValueError:
-                            continue
+                text = prj.read_text(encoding="utf-8", errors="ignore")
+                result = _parse_epsg_from_info_prj_text(text)
+                if result is not None:
+                    return result
             except Exception:
                 pass
+    return None
+
+
+def _parse_epsg_from_info_prj_text(text: str) -> int | None:
+    """Parse EPSG code from the content of a GeoSuite Info.prj file."""
+    for ln in text.splitlines():
+        parts = ln.strip().split()
+        if len(parts) >= 5:
+            try:
+                code = int(parts[4])
+                if code == 29 and len(parts) >= 6:
+                    zone_offset = int(parts[5])
+                    ntm_zone = 5 + zone_offset
+                    if 5 <= ntm_zone <= 30:
+                        return 5100 + ntm_zone
+                elif code == 22:
+                    return 25832
+                elif code == 23:
+                    return 25833
+            except ValueError:
+                continue
     return None
 
 
@@ -473,6 +481,104 @@ def load_snd_from_uploaded_files(
         "folder_path": None,
         "epsg": source_epsg,
         "detected_epsg": None,
+        "boreholes": boreholes,
+        "polygon": polygon,
+        "errors": errors,
+    }
+
+
+def load_snd_from_project_upload(
+    uploaded_files: list,
+    project_name: str = "Opplastet",
+) -> dict | None:
+    """
+    Load boreholes from an uploaded project folder.
+
+    Expects mixed uploaded files from a project folder structure.
+    Finds SND files (from AUTOGRAF.DBF/ or root) and Info.prj for CRS detection.
+    Each item should have .name and .read() (Streamlit UploadedFile).
+    Returns the same dict structure as load_snd_project().
+    """
+    if not uploaded_files:
+        return None
+
+    # Separate Info.prj and SND files from the upload
+    info_prj_file = None
+    snd_files = []
+    for uf in uploaded_files:
+        name_lower = uf.name.lower()
+        if name_lower == "info.prj":
+            info_prj_file = uf
+        elif name_lower.endswith(".snd"):
+            snd_files.append(uf)
+
+    if not snd_files:
+        return None
+
+    # Detect EPSG from Info.prj if present
+    detected_epsg = None
+    if info_prj_file is not None:
+        try:
+            prj_text = info_prj_file.read().decode("utf-8", errors="ignore")
+            info_prj_file.seek(0)
+            detected_epsg = _parse_epsg_from_info_prj_text(prj_text)
+        except Exception:
+            pass
+
+    source_epsg = detected_epsg or 25833
+
+    # Parse SND files
+    boreholes = []
+    errors = []
+    for uf in snd_files:
+        try:
+            content = uf.read().decode("utf-8", errors="ignore")
+            uf.seek(0)
+            data = parse_snd_full(content)
+            lat, lon = _convert_coords(data["x"], data["y"], source_epsg)
+            if not (math.isfinite(lat) and math.isfinite(lon)
+                    and -90 <= lat <= 90 and -180 <= lon <= 180):
+                errors.append(f"{uf.name}: Ugyldige koordinater")
+                continue
+            stem = Path(uf.name).stem
+            bh = {
+                "point_id": stem,
+                "file_path": None,
+                "lat": lat,
+                "lon": lon,
+                "elevation": data["z"],
+                "method_code": data.get("method_code"),
+                "method_name": data.get("method_name", "Ukjent"),
+                "date": data.get("date"),
+                "max_depth": data.get("max_depth", 0),
+            }
+            boreholes.append(bh)
+            _store_graph_data(project_name, stem, {
+                "depth": data["depth"],
+                "c2": data["c2"],
+                "c3": data.get("c3", []),
+                "c4": data.get("c4", []),
+                "spyling": data.get("spyling", []),
+                "slag": data.get("slag", []),
+            })
+        except Exception as e:
+            errors.append(f"{uf.name}: {e}")
+
+    if not boreholes:
+        return None
+
+    coords = [(bh["lat"], bh["lon"]) for bh in boreholes]
+    if len(coords) >= 3:
+        hull = _hull_with_buffer(coords)
+        polygon = hull + [hull[0]]
+    else:
+        polygon = coords
+
+    return {
+        "project_name": project_name,
+        "folder_path": None,
+        "epsg": source_epsg,
+        "detected_epsg": detected_epsg,
         "boreholes": boreholes,
         "polygon": polygon,
         "errors": errors,

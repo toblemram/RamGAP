@@ -253,10 +253,17 @@ def generate_code_with_retry(
 
 
 # ---------------------------------------------------------------------------
-# Safe Plaxis code execution
+# Code execution via PlaxisWorker job queue
 # ---------------------------------------------------------------------------
 
-# Safety: do not allow dangerous patterns
+import json
+import time
+
+from core.database import get_db_session
+from core.models import PlaxisJob
+from activities.plaxis.script_builder import build_agent_exec_script
+
+# Safety: do not allow dangerous patterns in agent-generated code
 _BLOCKED_PATTERNS = [
     re.compile(r"\bg\.new\s*\("),        # creating new project
     re.compile(r"\bnew_server\s*\("),     # opening new connection
@@ -265,41 +272,97 @@ _BLOCKED_PATTERNS = [
     re.compile(r"\bopen\s*\("),           # file I/O
     re.compile(r"\b__import__\s*\("),     # dynamic imports
     re.compile(r"\beval\s*\("),           # eval
-    re.compile(r"\bexec\s*\("),           # nested exec
 ]
 
 
-def execute_code(code: str, plaxis_globals: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Execute generated code in a restricted namespace containing only the
-    Plaxis session objects (g, s, g_o, s_o).
+def _check_safety(code: str) -> str | None:
+    """Return an error message if *code* contains a blocked pattern, else None."""
+    for pat in _BLOCKED_PATTERNS:
+        if pat.search(code):
+            return f"Blokkert: koden inneholder et forbudt mønster ({pat.pattern})."
+    return None
 
-    Returns ``{"success": bool, "output": str, "error": str | None}``.
+
+def execute_via_worker(
+    code: str,
+    connection_params: Dict[str, Any],
+    session_id: str = "default",
+    timeout: int = 180,
+) -> Dict[str, Any]:
+    """
+    Execute agent-generated code through the PlaxisWorker job queue.
+
+    1. Check safety
+    2. Wrap code with Plaxis connection (build_agent_exec_script)
+    3. Submit as PlaxisJob
+    4. Poll DB until worker finishes
+    5. Return ``{"success": bool, "output": str, "error": str | None}``
     """
     if not code or not code.strip():
         return {"success": False, "output": "", "error": "Ingen kode å kjøre."}
 
-    # Safety check
-    for pat in _BLOCKED_PATTERNS:
-        if pat.search(code):
-            return {
-                "success": False,
-                "output": "",
-                "error": f"Blokkert: koden inneholder et forbudt mønster ({pat.pattern}).",
-            }
+    safety_err = _check_safety(code)
+    if safety_err:
+        return {"success": False, "output": "", "error": safety_err}
 
-    # Capture print output
-    import io
-    import contextlib
+    # Build self-contained script
+    script = build_agent_exec_script(
+        host=connection_params["host"],
+        port=connection_params["port"],
+        password=connection_params["password"],
+        output_port=connection_params.get("output_port"),
+        output_password=connection_params.get("output_password"),
+        agent_code=code,
+    )
 
-    buf = io.StringIO()
-    namespace = dict(plaxis_globals)  # shallow copy
+    # Submit to job queue
+    db = get_db_session()
     try:
-        with contextlib.redirect_stdout(buf):
-            exec(code, namespace)  # noqa: S102  — controlled exec
-        return {"success": True, "output": buf.getvalue(), "error": None}
+        job = PlaxisJob(
+            session_id=session_id,
+            job_type="agent_exec",
+            code=script,
+            status="pending",
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
     except Exception as exc:
-        return {"success": False, "output": buf.getvalue(), "error": str(exc)}
+        db.rollback()
+        return {"success": False, "output": "", "error": f"Kunne ikke opprette jobb: {exc}"}
+    finally:
+        db.close()
+
+    # Poll for result
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(1.0)
+        db = get_db_session()
+        try:
+            job = db.query(PlaxisJob).filter(PlaxisJob.id == job_id).first()
+            if not job:
+                return {"success": False, "output": "", "error": "Jobb forsvant fra databasen."}
+            if job.status == "done":
+                result = json.loads(job.result_json) if job.result_json else {}
+                return {
+                    "success": result.get("success", False),
+                    "output": result.get("output", ""),
+                    "error": result.get("error"),
+                }
+            if job.status == "failed":
+                return {
+                    "success": False,
+                    "output": "",
+                    "error": job.error or "Jobb feilet i PlaxisWorker.",
+                }
+        finally:
+            db.close()
+
+    return {
+        "success": False,
+        "output": "",
+        "error": f"Tidsavbrudd — PlaxisWorker svarte ikke innen {timeout}s. Kjører PlaxisWorker?",
+    }
 
 
 def _analyze_output(output: str) -> Dict[str, Any]:
@@ -420,7 +483,8 @@ def _generate_next_step(
 
 def chat_and_execute(
     user_message: str,
-    plaxis_globals: Dict[str, Any],
+    connection_params: Dict[str, Any],
+    session_id: str = "default",
     history: Optional[List[Dict[str, str]]] = None,
     pdf_text: Optional[str] = None,
     selected_context: Optional[List[str]] = None,
@@ -428,29 +492,12 @@ def chat_and_execute(
     max_steps: int = 5,
 ) -> Dict[str, Any]:
     """
-    Multi-step agent loop:
+    Multi-step agent loop that executes through PlaxisWorker:
       1. Generate code for current step
-      2. Execute it
+      2. Execute via worker job queue
       3. If execution fails → retry with error feedback (up to max_retries)
       4. If execution succeeds → analyze output
-         - If output has empty sections or more work needed → generate next step
-         - If agent asks a question → stop and relay to user
-         - If '# FERDIG' marker or max_steps reached → return final result
       5. Accumulate all output across steps
-
-    Returns::
-
-        {
-            "code":       <final code string>,
-            "output":     <accumulated stdout from all steps>,
-            "success":    <bool>,
-            "error":      <error string or None>,
-            "attempts":   <total attempts across all steps>,
-            "steps":      <number of steps executed>,
-            "docs_used":  <list of doc names>,
-            "question":   <str or None — if agent asks the user>,
-            "thinking":   <list of thinking-log entries>,
-        }
     """
     all_output_parts = []
     all_code_parts = []
@@ -525,8 +572,8 @@ def chat_and_execute(
         for attempt in range(1, max_retries + 2):
             total_attempts += 1
             _log(step, "▶️ Kjører kode",
-                 f"Forsøk {attempt} — kjører {len(code.splitlines())} linjer mot PLAXIS…")
-            exec_result = execute_code(code, plaxis_globals)
+                 f"Forsøk {attempt} — kjører {len(code.splitlines())} linjer via PlaxisWorker…")
+            exec_result = execute_via_worker(code, connection_params, session_id)
 
             if exec_result["success"]:
                 output_lines = len(exec_result.get("output", "").splitlines())
@@ -623,7 +670,7 @@ def chat_and_execute(
             cleanup_code = _generate_cleanup(raw_output, user_message)
             if cleanup_code:
                 total_attempts += 1
-                cleanup_result = execute_code(cleanup_code, plaxis_globals)
+                cleanup_result = execute_via_worker(cleanup_code, connection_params, session_id)
                 if cleanup_result["success"] and cleanup_result["output"].strip():
                     _log(step + 1, "✅ Opprydding ferdig",
                          f"Formatert output: {len(cleanup_result['output'].splitlines())} linjer")

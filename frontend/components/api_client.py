@@ -343,7 +343,7 @@ class APIClient:
         return f'{self.base_url}/api/modeling/activities/{activity_id}/export/excel'
 
     # ------------------------------------------------------------------
-    # Plaxis Agent
+    # GAPI (Plaxis Agent)
     # ------------------------------------------------------------------
 
     def plaxis_agent_chat(self, message: str, session_id: str = 'default',

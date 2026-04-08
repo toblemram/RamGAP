@@ -74,6 +74,13 @@ _DEFAULTS = {
     "ws_plate":                 None,
     "ws_phases_config":         {},
     "ws_results":               None,
+    # Sensitivity analysis state
+    "sa_params":                [],
+    "sa_plate":                 None,
+    "sa_soil_name":             None,
+    "sa_phases_config":         {},
+    "sa_results":               None,
+    "sa_base_values":           {},
 }
 for _k, _v in _DEFAULTS.items():
     if _k not in st.session_state:
@@ -290,6 +297,9 @@ def show_level2():
          "enabled": True},
         {"id": "water_sensitivity", "name": "Vannstandssensitivitet",
          "desc": "Varier grunnvannstand og analyser effekt på sikkerhetsfaktor, deformasjon og krefter",
+         "enabled": True},
+        {"id": "sensitivity_analysis", "name": "Full sensitivitetsanalyse",
+         "desc": "Varier flere parametere (Su, phi, c, γ, E, vannstand, spuntdybde) én om gangen og se hvilke som påvirker mest — med tornadodiagram og AI-rapport",
          "enabled": True},
         {"id": "extract_results", "name": "Uttak av spuntberegninger",
          "desc": "Hent ut resultater for kapasitetssjekk, Msf, og deformasjoner", "enabled": True},
@@ -1305,6 +1315,15 @@ def _reload_calculation(calc_type: str, config: dict, rows: list):
         st.session_state.ws_results = None
         st.session_state.pop("ws_saved_id", None)
 
+    elif calc_type == "sensitivity_analysis":
+        st.session_state.sa_params = config.get("params", [])
+        st.session_state.sa_plate = config.get("plate")
+        st.session_state.sa_soil_name = config.get("soil_name")
+        st.session_state.sa_phases_config = config.get("phases", {})
+        st.session_state.sa_base_values = config.get("base_values", {})
+        st.session_state.sa_results = None
+        st.session_state.pop("sa_saved_id", None)
+
     st.session_state.plaxis_level = 3
     st.rerun()
 
@@ -1788,6 +1807,460 @@ def show_ws_level5():
             st.rerun()
 
 
+# ============================================================
+# FULL SENSITIVITY ANALYSIS WORKFLOW
+# ============================================================
+
+_SA_PARAM_TYPES = [
+    {"id": "su",          "label": "Su — udrenert skjærstyrke (kPa)",              "soil": True},
+    {"id": "phi",         "label": "φ — friksjonsvinkel (°)",                       "soil": True},
+    {"id": "cohesion",    "label": "c' — kohesjon (kPa)",                           "soil": True},
+    {"id": "gamma",       "label": "γ — tyngdetetthet (kN/m³)",                     "soil": True},
+    {"id": "eref",        "label": "E — stivhet / referansemodul (kPa)",            "soil": True},
+    {"id": "water_level", "label": "Grunnvannstand (m)",                            "soil": False},
+    {"id": "plate_depth", "label": "Spuntdybde — underkant (m)",                    "soil": False},
+]
+
+
+def show_sa_level3():
+    """Sensitivity Analysis Level 3: Configure parameters to vary."""
+    st.markdown("### Nivå 3 – Sensitivitetsanalyse — oppsett")
+    st.caption(
+        "Velg hvilke parametere som skal varieres og definer verdier for hver. "
+        "Hver parameter varieres én om gangen mens de andre beholdes."
+    )
+
+    model = st.session_state.plaxis_model_data
+    if not model:
+        st.error("Ingen modelldata tilgjengelig")
+        return
+
+    structs = model.get("structures", {})
+    phases  = model.get("phases", [])
+    geo     = model.get("geometry", {})
+    layers  = geo.get("soil_layers", [])
+    soil_mat_names = sorted({l["material"] for l in layers if "material" in l})
+
+    # ---- Section 1: Soil and plate selection ----
+    st.markdown("---")
+    st.markdown("#### 1. Velg jordlag og spunt")
+
+    soil_name = st.selectbox(
+        "Jordlag å variere (materialnavnet i Plaxis)",
+        options=soil_mat_names,
+        index=(soil_mat_names.index(st.session_state.sa_soil_name)
+               if st.session_state.sa_soil_name in soil_mat_names else 0),
+        key="sa_soil_select",
+    )
+    st.session_state.sa_soil_name = soil_name
+
+    plates = structs.get("plates", []) + structs.get("embedded_beams", [])
+    plate_names = [p["name"] for p in plates]
+
+    sel_plate = st.selectbox(
+        "Spunt å evaluere",
+        options=plate_names,
+        index=(plate_names.index(st.session_state.sa_plate)
+               if st.session_state.sa_plate in plate_names else 0),
+        key="sa_plate_select",
+    )
+    st.session_state.sa_plate = sel_plate
+
+    # ---- Section 2: Parameter definitions ----
+    st.markdown("---")
+    st.markdown("#### 2. Definer parametervariasjoner")
+    st.caption(
+        "Velg hvilke parametere som skal varieres og angi verdier (komma-separert). "
+        "Hvert parametersett kjøres uavhengig — dette gir en sensitivitetsanalyse."
+    )
+
+    sa_params = st.session_state.sa_params
+    if not sa_params:
+        sa_params = []
+
+    # Defaults for plate depth
+    plate_info = next((p for p in plates if p["name"] == sel_plate), None)
+    current_depth = plate_info.get("y2", -10) if plate_info else -10
+
+    # Current water head
+    current_wh = geo.get("water_head", 0)
+
+    new_params = []
+    for pt in _SA_PARAM_TYPES:
+        existing = next((p for p in sa_params if p["id"] == pt["id"]), None)
+        enabled = existing["enabled"] if existing else False
+        values_str = existing.get("values", "") if existing else ""
+
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            en = st.checkbox(pt["label"], value=enabled, key=f"sa_en_{pt['id']}")
+        with col2:
+            if en:
+                default_hint = ""
+                if pt["id"] == "su":
+                    default_hint = "f.eks. 5, 10, 15, 20, 25, 30"
+                elif pt["id"] == "phi":
+                    default_hint = "f.eks. 20, 25, 28, 30, 33, 35"
+                elif pt["id"] == "cohesion":
+                    default_hint = "f.eks. 0, 2, 5, 10, 15"
+                elif pt["id"] == "gamma":
+                    default_hint = "f.eks. 16, 17, 18, 19, 20"
+                elif pt["id"] == "eref":
+                    default_hint = "f.eks. 5000, 10000, 15000, 20000"
+                elif pt["id"] == "water_level":
+                    default_hint = f"f.eks. {current_wh-2}, {current_wh-1}, {current_wh}, {current_wh+1}, {current_wh+2}"
+                elif pt["id"] == "plate_depth":
+                    default_hint = f"f.eks. {current_depth+2}, {current_depth+1}, {current_depth}, {current_depth-1}, {current_depth-2}"
+
+                vals = st.text_input(
+                    f"Verdier for {pt['label']}",
+                    value=values_str or default_hint,
+                    key=f"sa_vals_{pt['id']}",
+                    help=default_hint,
+                )
+                new_params.append({"id": pt["id"], "label": pt["label"],
+                                   "enabled": True, "values": vals, "soil": pt["soil"]})
+            else:
+                new_params.append({"id": pt["id"], "label": pt["label"],
+                                   "enabled": False, "values": values_str, "soil": pt["soil"]})
+
+    st.session_state.sa_params = new_params
+
+    # ---- Section 3: Phase selection ----
+    st.markdown("---")
+    st.markdown("#### 3. Faser å evaluere")
+
+    pc = st.session_state.sa_phases_config
+    if not pc:
+        pc["fos_phase"] = None
+        pc["disp_phase"] = None
+        pc["cap_phase"] = None
+
+    phase_names = [p["name"] for p in phases]
+    fos_phases = [p["name"] for p in phases if p.get("calc_type_id") == 7]
+
+    pc["fos_phase"] = st.selectbox(
+        "🔴 FoS-fase (sikkerhetsfaktor)",
+        options=fos_phases if fos_phases else phase_names,
+        index=0,
+        key="sa_fos_phase",
+    )
+    pc["disp_phase"] = st.selectbox(
+        "📏 Deformasjonsfase (maks Ux)",
+        options=phase_names,
+        index=min(len(phase_names) - 1, len(phase_names) - 2) if len(phase_names) > 1 else 0,
+        key="sa_disp_phase",
+    )
+    pc["cap_phase"] = st.selectbox(
+        "💪 Kapasitetsfase (maks krefter)",
+        options=phase_names,
+        index=min(len(phase_names) - 1, len(phase_names) - 2) if len(phase_names) > 1 else 0,
+        key="sa_cap_phase",
+    )
+
+    # ---- Summary ----
+    st.markdown("---")
+    st.markdown("#### Oppsummering")
+    active_params = [p for p in new_params if p["enabled"]]
+    total_runs = 0
+    for p in active_params:
+        n = len([v.strip() for v in p.get("values", "").split(",") if v.strip()])
+        st.write(f"**{p['label']}**: {n} verdier")
+        total_runs += n
+    st.write(f"**Totalt antall beregningskjøringer:** {total_runs}")
+    if total_runs > 50:
+        st.warning("⚠️ Mange kjøringer — dette kan ta lang tid!")
+
+    # ---- Navigation ----
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← Forrige", use_container_width=True, key="sa3_back"):
+            st.session_state.plaxis_level = 2
+            st.rerun()
+    with c2:
+        can_proceed = total_runs > 0
+        if st.button("Neste → Kjør beregninger", type="primary",
+                     use_container_width=True, disabled=not can_proceed, key="sa3_next"):
+            st.session_state.plaxis_level = 4
+            st.rerun()
+
+
+def show_sa_level4():
+    """Sensitivity Analysis Level 4: Run the study."""
+    import pandas as pd
+
+    st.markdown("### Nivå 4 – Kjør sensitivitetsanalyse")
+
+    active_params = [p for p in st.session_state.sa_params if p["enabled"]]
+    pc = st.session_state.sa_phases_config
+
+    # Build the run plan
+    runs = []
+    for param in active_params:
+        vals = [float(v.strip()) for v in param.get("values", "").split(",") if v.strip()]
+        for val in vals:
+            runs.append({"param_type": param["id"], "param_label": param["label"],
+                         "param_value": val, "soil": param["soil"]})
+
+    st.write(f"**Antall beregninger:** {len(runs)}")
+
+    df_preview = pd.DataFrame([{"Parameter": r["param_label"], "Verdi": r["param_value"]} for r in runs])
+    st.dataframe(df_preview, hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← Forrige", use_container_width=True, key="sa4_back"):
+            st.session_state.plaxis_level = 3
+            st.rerun()
+    with c2:
+        if st.button("🚀 Start sensitivitetsanalyse", type="primary",
+                     use_container_width=True, key="sa4_run"):
+            _run_sensitivity_analysis(runs, pc)
+
+
+def _run_sensitivity_analysis(runs, phases_config):
+    """Execute the full sensitivity analysis."""
+    progress = st.progress(0)
+    status   = st.empty()
+    results  = []
+
+    for i, run in enumerate(runs):
+        pct = int((i / len(runs)) * 100)
+        progress.progress(pct)
+        status.text(
+            f"Kjører beregning {i+1}/{len(runs)}: "
+            f"{run['param_label']} = {run['param_value']}..."
+        )
+
+        payload = {
+            "session_id":      st.session_state.get("username", "default"),
+            "param_type":      run["param_type"],
+            "param_value":     run["param_value"],
+            "soil_name":       st.session_state.sa_soil_name if run["soil"] else None,
+            "plate":           st.session_state.sa_plate,
+            "fos_phase":       phases_config.get("fos_phase"),
+            "disp_phase":      phases_config.get("disp_phase"),
+            "cap_phase":       phases_config.get("cap_phase"),
+            "host":            st.session_state.plaxis_host or 'localhost',
+            "port":            st.session_state.plaxis_port,
+            "password":        st.session_state.plaxis_password,
+            "output_port":     st.session_state.plaxis_output_port,
+            "output_password": st.session_state.plaxis_output_password,
+        }
+
+        try:
+            resp = api.plaxis_submit_job('sensitivity', payload)
+            if resp.get('error'):
+                result = {"success": False, "error": resp.get('error')}
+            else:
+                job = _poll_job(resp['job_id'], status_text=status, timeout=300)
+                result = job.get('result', {}) if job.get('status') == 'done' else {
+                    "success": False, "error": job.get('error', 'Tidsavbrudd')
+                }
+        except Exception:
+            result = {"success": False, "error": "Kunne ikke kontakte backend"}
+
+        row = {
+            "Parameter":       run["param_label"],
+            "param_type":      run["param_type"],
+            "Verdi":           run["param_value"],
+            "FoS":             result.get("msf", "–"),
+            "Ux_max (mm)":     result.get("ux_max", "–"),
+            "M_max (kNm/m)":   result.get("m_max", "–"),
+            "Q_max (kN/m)":    result.get("q_max", "–"),
+            "N_max (kN/m)":    result.get("n_max", "–"),
+            "Status":          "✅" if result.get("success") else f"❌ {result.get('error', '')}",
+        }
+        results.append(row)
+
+    progress.progress(100)
+    status.text("Ferdig!")
+    st.session_state.sa_results = results
+    st.session_state.plaxis_level = 5
+    st.rerun()
+
+
+def show_sa_level5():
+    """Sensitivity Analysis Level 5: Display results with tornado diagrams and charts."""
+    import pandas as pd
+
+    st.markdown("### Nivå 5 – Sensitivitetsanalyse — resultater")
+
+    results = st.session_state.sa_results
+    if not results:
+        st.info("Ingen resultater ennå. Gå tilbake og kjør beregningen.")
+        if st.button("← Tilbake", key="sa5_empty_back"):
+            st.session_state.plaxis_level = 4
+            st.rerun()
+        return
+
+    df = pd.DataFrame(results)
+
+    # Display columns (hide param_type from user)
+    display_cols = [c for c in df.columns if c != "param_type"]
+    st.markdown("#### Resultatoversikt")
+    st.dataframe(df[display_cols], hide_index=True, use_container_width=True)
+
+    # Convert numeric columns
+    numeric_cols = ["FoS", "Ux_max (mm)", "M_max (kNm/m)", "Q_max (kN/m)", "N_max (kN/m)"]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df_valid = df.dropna(subset=["FoS"])
+
+    if not df_valid.empty:
+        import plotly.express as px
+        import plotly.graph_objects as go
+
+        st.markdown("---")
+        st.markdown("#### Grafer per parameter")
+
+        # Group results by param_type and plot per-parameter line charts
+        param_types = df_valid["param_type"].unique()
+        for pt in param_types:
+            df_pt = df_valid[df_valid["param_type"] == pt].copy()
+            label = df_pt["Parameter"].iloc[0] if not df_pt.empty else pt
+
+            st.markdown(f"##### {label}")
+
+            # FoS chart
+            if "FoS" in df_pt.columns and df_pt["FoS"].notna().any():
+                fig = px.line(
+                    df_pt, x="Verdi", y="FoS",
+                    title=f"FoS vs. {label}",
+                    markers=True,
+                )
+                fig.add_hline(y=1.4, line_dash="dash", line_color="red",
+                              annotation_text="FoS krav = 1.4")
+                st.plotly_chart(fig, use_container_width=True)
+
+            # Displacement chart
+            if "Ux_max (mm)" in df_pt.columns and df_pt["Ux_max (mm)"].notna().any():
+                fig2 = px.line(
+                    df_pt, x="Verdi", y="Ux_max (mm)",
+                    title=f"Maks deformasjon vs. {label}",
+                    markers=True,
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+
+            # Forces subplot
+            force_cols = [c for c in ["M_max (kNm/m)", "Q_max (kN/m)", "N_max (kN/m)"]
+                          if c in df_pt.columns and df_pt[c].notna().any()]
+            if force_cols:
+                fig3 = go.Figure()
+                for fc in force_cols:
+                    fig3.add_trace(go.Scatter(
+                        x=df_pt["Verdi"], y=df_pt[fc],
+                        mode="lines+markers", name=fc,
+                    ))
+                fig3.update_layout(
+                    title=f"Krefter vs. {label}",
+                    xaxis_title="Verdi",
+                    yaxis_title="Kraft / Moment",
+                )
+                st.plotly_chart(fig3, use_container_width=True)
+
+        # ---- Tornado Diagram ----
+        st.markdown("---")
+        st.markdown("#### Tornadodiagram — sensitivitet av FoS")
+        st.caption(
+            "Viser hvor mye FoS varierer for hvert parametersett. "
+            "Parametere med størst spredning har størst innvirkning."
+        )
+
+        tornado_data = []
+        for pt in param_types:
+            df_pt = df_valid[df_valid["param_type"] == pt]
+            fos_vals = df_pt["FoS"].dropna()
+            if len(fos_vals) >= 2:
+                label = df_pt["Parameter"].iloc[0]
+                fos_min = fos_vals.min()
+                fos_max = fos_vals.max()
+                fos_range = fos_max - fos_min
+                tornado_data.append({
+                    "Parameter": label,
+                    "FoS min": fos_min,
+                    "FoS max": fos_max,
+                    "Spredning": fos_range,
+                })
+
+        if tornado_data:
+            df_tornado = pd.DataFrame(tornado_data).sort_values("Spredning", ascending=True)
+
+            fig_tornado = go.Figure()
+            fig_tornado.add_trace(go.Bar(
+                y=df_tornado["Parameter"],
+                x=df_tornado["FoS max"] - df_tornado["FoS min"],
+                base=df_tornado["FoS min"],
+                orientation="h",
+                marker_color="#636EFA",
+                text=[f"{row['FoS min']:.2f} – {row['FoS max']:.2f}" for _, row in df_tornado.iterrows()],
+                textposition="outside",
+            ))
+            fig_tornado.add_vline(x=1.4, line_dash="dash", line_color="red",
+                                  annotation_text="FoS krav = 1.4")
+            fig_tornado.update_layout(
+                title="Tornadodiagram — FoS-spredning per parameter",
+                xaxis_title="FoS (Msf)",
+                yaxis_title="",
+                height=max(300, len(tornado_data) * 60 + 100),
+            )
+            st.plotly_chart(fig_tornado, use_container_width=True)
+
+            st.markdown("**Rangering — mest sensitiv til minst:**")
+            df_ranked = df_tornado.sort_values("Spredning", ascending=False).reset_index(drop=True)
+            df_ranked.index = df_ranked.index + 1
+            st.dataframe(
+                df_ranked[["Parameter", "FoS min", "FoS max", "Spredning"]],
+                use_container_width=True,
+            )
+
+    # AI Report
+    st.markdown("---")
+    _show_ai_report_button(
+        calc_type="sensitivity_analysis",
+        config={
+            "soil_name": st.session_state.sa_soil_name,
+            "plate": st.session_state.sa_plate,
+            "params": [p for p in st.session_state.sa_params if p["enabled"]],
+            "phases": st.session_state.sa_phases_config,
+        },
+        results=results,
+        key_prefix="sa",
+    )
+
+    # Save calculation
+    st.markdown("---")
+    _show_save_button(
+        calc_type="sensitivity_analysis",
+        activity_name="Sensitivitetsanalyse",
+        config={
+            "soil_name": st.session_state.sa_soil_name,
+            "plate": st.session_state.sa_plate,
+            "params": [p for p in st.session_state.sa_params if p["enabled"]],
+            "phases": st.session_state.sa_phases_config,
+        },
+        results=results,
+        key_prefix="sa",
+    )
+
+    # Navigation
+    st.markdown("---")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← Endre parametere", use_container_width=True, key="sa5_back"):
+            st.session_state.plaxis_level = 3
+            st.rerun()
+    with c2:
+        if st.button("🔄 Kjør på nytt", use_container_width=True, key="sa5_rerun"):
+            st.session_state.sa_results = None
+            st.session_state.plaxis_level = 4
+            st.rerun()
+
+
 # ----------------------------------------------------------------------- page
 
 def main():
@@ -1809,6 +2282,8 @@ def main():
         levels = ["1. Tilkobling", "2. Funksjon", "3. Parametere", "4. Kjør", "5. Resultater"]
     elif fn == "water_sensitivity":
         levels = ["1. Tilkobling", "2. Funksjon", "3. Vannstand", "4. Kjør", "5. Resultater"]
+    elif fn == "sensitivity_analysis":
+        levels = ["1. Tilkobling", "2. Funksjon", "3. Parametere", "4. Kjør", "5. Resultater"]
     else:
         levels = ["1. Tilkobling", "2. Funksjon", "3. Spunt/Ankere", "4. Faser", "5. Output"]
 
@@ -1830,6 +2305,10 @@ def main():
         if   current == 3: show_ws_level3()
         elif current == 4: show_ws_level4()
         elif current == 5: show_ws_level5()
+    elif current >= 3 and fn == "sensitivity_analysis":
+        if   current == 3: show_sa_level3()
+        elif current == 4: show_sa_level4()
+        elif current == 5: show_sa_level5()
     else:
         if   current == 3: show_level3()
         elif current == 4: show_level4()
