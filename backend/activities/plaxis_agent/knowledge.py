@@ -1,166 +1,87 @@
 # -*- coding: utf-8 -*-
 """
-Knowledge Retrieval — Jupyter-basert
+Knowledge Retrieval — Filbasert
 ======================================
-Henter all Plaxis API-dokumentasjon direkte fra den kjørende Jupyter-serveren
-på http://localhost:8888.
+Henter Plaxis API-dokumentasjon fra lokale markdown-filer
+(docs/plaxis_2d_commands.md og docs/plaxis_2d_reference.md).
 
 Flyt:
-  1. Auto-henter Jupyter-token fra %APPDATA%\\jupyter\\runtime\\nbserver-*.json
-  2. Henter contents_2d.ipynb for å bygge en oversikt over alle tilgjengelige
-     kommandoer og hvilke notebooks de bor i
-  3. Matcher brukerspørsmål mot kommandonavn via nøkkelord-scoring
-  4. Henter de relevante notatbøkene og pakker ut celleinnhold
-  5. Returnerer formatert innhold som kontekst til LLM-en
+  1. Leser plaxis_2d_commands.md og parser ut seksjoner per kommando
+  2. Matcher brukerspørsmål mot kommandonavn via nøkkelord-scoring
+  3. Returnerer de mest relevante seksjonene som kontekst til LLM-en
 
-Ingen lokale JSON-filer, ingen FAISS-indekser.
+Ingen Jupyter-server, ingen nettverkstilkoblinger for docs.
 """
 
-import glob
-import json
 import os
 import re
-import urllib.error
-import urllib.request
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
-JUPYTER_BASE = "http://localhost:8888"
-CONTENTS_INDEX_PATH = "contents_2d.ipynb"
+# Sti til docs-mappen relativt til denne filen
+_DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "docs")
+_COMMANDS_FILE = os.path.join(_DOCS_DIR, "plaxis_2d_commands.md")
+_REFERENCE_FILE = os.path.join(_DOCS_DIR, "plaxis_2d_reference.md")
 
 # ---------------------------------------------------------------------------
 # Cache i minnet for sesjonen
 # ---------------------------------------------------------------------------
-_token: Optional[str] = None
-_command_index: Optional[Dict[str, str]] = None  # name -> notebook path
+_command_index: Optional[Dict[str, str]] = None  # name -> section content
 
 
 # ---------------------------------------------------------------------------
-# Token-oppdagelse
+# Markdown-parser: del opp plaxis_2d_commands.md i seksjoner per kommando
 # ---------------------------------------------------------------------------
 
-def _find_token(force_refresh: bool = False) -> str:
-    """Les Jupyter-token fra runtime JSON-fil i %APPDATA%\\jupyter\\runtime\\."""
-    global _token, _command_index
-    if _token and not force_refresh:
-        return _token
+def _parse_commands_md() -> Dict[str, str]:
+    """
+    Les plaxis_2d_commands.md og bygg en mapping  kommando-navn -> innhold.
 
-    if force_refresh:
-        _command_index = None  # Token endret → indeksen kan også være stale
+    Filen har seksjoner på formen:
+      ## INPUT: kommando-navn
+    eller
+      ## OUTPUT: kommando-navn
 
-    appdata = os.environ.get("APPDATA", "")
-    runtime_dir = os.path.join(appdata, "jupyter", "runtime")
-    pattern = os.path.join(runtime_dir, "nbserver-*.json")
-    files = glob.glob(pattern)
-
-    if not files:
+    Alt mellom to slike overskrifter hører til én kommando.
+    """
+    path = os.path.normpath(_COMMANDS_FILE)
+    if not os.path.isfile(path):
         raise RuntimeError(
-            f"Fant ingen kjørende Jupyter-server i {runtime_dir}. "
-            "Start Plaxis 2D slik at Jupyter-serveren starter på port 8888."
+            f"Fant ikke {path}. Sjekk at docs/plaxis_2d_commands.md finnes."
         )
 
-    # Sort by modification time — newest first
-    files.sort(key=os.path.getmtime, reverse=True)
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
 
-    # Try each file until we find one with port 8888
-    for fpath in files:
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if data.get("port") == 8888 and data.get("token"):
-                _token = data["token"]
-                return _token
-        except (json.JSONDecodeError, OSError):
-            continue
-
-    # Fallback: just use the newest file
-    with open(files[0], "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    token = data.get("token", "")
-    if not token:
-        raise RuntimeError("Jupyter-serveren har ingen token (ukjent konfigurasjon).")
-
-    _token = token
-    return _token
-
-
-# ---------------------------------------------------------------------------
-# Jupyter API-hjelper
-# ---------------------------------------------------------------------------
-
-def _fetch_jupyter(path: str) -> dict:
-    """Hent innhold fra Jupyter contents API."""
-    token = _find_token()
-    url = f"{JUPYTER_BASE}/api/contents/{path}?token={token}"
-    req = urllib.request.Request(
-        url,
-        headers={"Accept": "application/json"},
+    # Splitt på ## INPUT: xxx  eller  ## OUTPUT: xxx
+    section_re = re.compile(
+        r'^## (?:INPUT|OUTPUT):\s*(\w+)',
+        re.MULTILINE,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        if exc.code == 403:
-            # Token might be stale — force refresh and retry once
-            old_token = token
-            new_token = _find_token(force_refresh=True)
-            retry_url = f"{JUPYTER_BASE}/api/contents/{path}?token={new_token}"
-            retry_req = urllib.request.Request(
-                retry_url, headers={"Accept": "application/json"})
-            try:
-                with urllib.request.urlopen(retry_req, timeout=15) as resp:  # noqa: S310
-                    return json.loads(resp.read())
-            except urllib.error.HTTPError as retry_exc:
-                raise RuntimeError(
-                    f"Jupyter svarte {retry_exc.code} for '{path}' "
-                    f"(også etter token-refresh): {retry_exc.reason}"
-                )
-        raise RuntimeError(f"Jupyter svarte {exc.code} for '{path}': {exc.reason}")
-    except OSError as exc:
-        raise RuntimeError(
-            f"Kunne ikke nå Jupyter på {JUPYTER_BASE}. Kjører serveren? ({exc})"
-        )
 
+    matches = list(section_re.finditer(text))
+    index: Dict[str, str] = {}
 
-def _extract_cells(notebook_data: dict) -> List[Tuple[str, str]]:
-    """Returner liste av (cell_type, source) fra en notatbok."""
-    cells = notebook_data.get("content", {}).get("cells", [])
-    result = []
-    for cell in cells:
-        source = cell.get("source", "")
-        if isinstance(source, list):
-            source = "".join(source)
-        cell_type = cell.get("cell_type", "code")
-        if source.strip():
-            result.append((cell_type, source.strip()))
-    return result
+    for i, m in enumerate(matches):
+        name = m.group(1).strip().lower()
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        content = text[start:end].strip()
+        # Hvis kommandoen dukker opp flere ganger (input + output), slå sammen
+        if name in index:
+            index[name] += "\n\n---\n\n" + content
+        else:
+            index[name] = content
 
+    return index
 
-# ---------------------------------------------------------------------------
-# Kommandoindeks bygget fra contents_2d.ipynb
-# ---------------------------------------------------------------------------
 
 def _build_command_index() -> Dict[str, str]:
-    """
-    Hent contents_2d.ipynb og bygg en mapping  kommando-navn -> notatbok-sti.
-    Notatboken inneholder markdown-lister med lenker på formen:
-      - [activate](input_notebooks/2d-python-inputcommands-activate.ipynb)
-    """
+    """Bygg (eller returner cachet) kommandoindeks fra markdown-filen."""
     global _command_index
     if _command_index is not None:
         return _command_index
 
-    data = _fetch_jupyter(CONTENTS_INDEX_PATH)
-    cells = _extract_cells(data)
-
-    index: Dict[str, str] = {}
-    link_re = re.compile(r'\[([^\]]+)\]\(([^)]+\.ipynb)\)')
-
-    for cell_type, source in cells:
-        for name, path in link_re.findall(source):
-            index[name.strip().lower()] = path.strip()
-
-    _command_index = index
+    _command_index = _parse_commands_md()
     return _command_index
 
 
@@ -250,53 +171,31 @@ def _score_commands(query: str, index: Dict[str, str], k: int = 4) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Hent og formater notatbokinnhold
-# ---------------------------------------------------------------------------
-
-def _fetch_notebook_content(nb_path: str) -> str:
-    """Hent en notatbok og returner innholdet som lesbar tekst."""
-    data = _fetch_jupyter(nb_path)
-    cells = _extract_cells(data)
-
-    parts = []
-    for cell_type, source in cells:
-        if cell_type == "code":
-            parts.append(f"```python\n{source}\n```")
-        else:
-            parts.append(source)
-    return "\n\n".join(parts)
-
-
-# ---------------------------------------------------------------------------
 # Offentlig API (brukes av service.py)
 # ---------------------------------------------------------------------------
 
 def retrieve_docs(query: str, k: int = 4) -> List[Dict]:
     """
-    Finn og hent de k mest relevante Plaxis-kommando-notatbøkene for spørringen.
+    Finn de k mest relevante Plaxis-kommando-seksjonene for spørringen.
 
     Returnerer liste av dicts:
-        {"name": str, "path": str, "content": str}
+        {"name": str, "path": "plaxis_2d_commands.md", "content": str}
     """
     index = _build_command_index()
     matched_names = _score_commands(query, index, k=k)
 
     docs = []
     for name in matched_names:
-        path = index[name]
-        try:
-            content = _fetch_notebook_content(path)
-            docs.append({"name": name, "path": path, "content": content})
-        except Exception as exc:
-            docs.append({"name": name, "path": path, "content": f"[Kunne ikke hente: {exc}]"})
+        content = index[name]
+        docs.append({"name": name, "path": "plaxis_2d_commands.md", "content": content})
     return docs
 
 
 def build_api_cards(docs: List[Dict], max_per_doc: int = 2000, max_total: int = 8000) -> str:
-    """Formater hentede notatbøker som kompakte API-kort til LLM-prompten."""
+    """Formater hentede kommandoseksjoner som kompakte API-kort til LLM-prompten."""
     parts, total = [], 0
     for d in docs:
-        header = f"### Plaxis-kommando: `{d['name']}`  ({d['path']})"
+        header = f"### Plaxis-kommando: `{d['name']}`"
         body = d.get("content", "")
         card = f"{header}\n\n{body}"
         if len(card) > max_per_doc:
@@ -309,7 +208,7 @@ def build_api_cards(docs: List[Dict], max_per_doc: int = 2000, max_total: int = 
 
 
 def ensure_loaded():
-    """Verifiser at Jupyter-serveren er tilgjengelig og indeksen kan bygges."""
+    """Verifiser at markdown-filen finnes og kan parses."""
     _build_command_index()
 
 
