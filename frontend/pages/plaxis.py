@@ -358,16 +358,16 @@ def _build_cross_section_figure(model, selected_spunts, selected_anchors):
     plates_all = structs.get("plates", []) + structs.get("embedded_beams", [])
     anchors_all = (structs.get("node_to_node_anchors", [])
                    + structs.get("fixed_end_anchors", []))
-    struct_xs = ([p.get("x1", p.get("x", 0)) for p in plates_all]
-                 + [p.get("x2", p.get("x", 0)) for p in plates_all]
-                 + [a.get("x1", 0) for a in anchors_all]
-                 + [a.get("x2", 0) for a in anchors_all])
-    struct_ys = ([p.get("y1", 0) for p in plates_all]
-                 + [p.get("y2", 0) for p in plates_all]
-                 + [a.get("y1", 0) for a in anchors_all]
-                 + [a.get("y2", 0) for a in anchors_all])
-    xmin = geo.get("xmin", min(struct_xs) if struct_xs else 0)
-    xmax = geo.get("xmax", max(struct_xs) if struct_xs else 30)
+    struct_xs = ([p.get("x1") or p.get("x") or 0 for p in plates_all]
+                 + [p.get("x2") or p.get("x") or 0 for p in plates_all]
+                 + [a.get("x1") or 0 for a in anchors_all]
+                 + [a.get("x2") or 0 for a in anchors_all])
+    struct_ys = ([p.get("y1") or 0 for p in plates_all]
+                 + [p.get("y2") or 0 for p in plates_all]
+                 + [a.get("y1") or 0 for a in anchors_all]
+                 + [a.get("y2") or 0 for a in anchors_all])
+    xmin = geo.get("xmin") or (min(struct_xs) if struct_xs else 0)
+    xmax = geo.get("xmax") or (max(struct_xs) if struct_xs else 30)
 
     # Colour palette for soil layers (earth tones)
     layer_colors = [
