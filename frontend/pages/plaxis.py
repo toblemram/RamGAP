@@ -471,11 +471,13 @@ def _build_cross_section_figure(model, selected_spunts, selected_anchors):
     y_hi = max(all_y) + 2 if all_y else 5
 
     fig.update_layout(
-        height=550,
-        margin=dict(l=40, r=20, t=30, b=40),
-        xaxis=dict(title="x (m)", range=[xmin - 3, xmax + 3]),
-        yaxis=dict(title="y (m)", range=[y_lo, y_hi], scaleanchor="x"),
-        plot_bgcolor="white",
+        height=500,
+        margin=dict(l=40, r=20, t=10, b=40),
+        xaxis=dict(title="x (m)", range=[xmin - 3, xmax + 3],
+                   gridcolor="rgba(200,200,200,0.3)"),
+        yaxis=dict(title="Kote (m)", range=[y_lo, y_hi], scaleanchor="x",
+                   gridcolor="rgba(200,200,200,0.3)"),
+        plot_bgcolor="#fafafa",
         hovermode="closest",
     )
     return fig
@@ -524,53 +526,62 @@ def show_level3():
             st.session_state.plaxis_selected_anchors = anchor_names
 
     else:  # Cross-section mode
-        st.markdown("#### Velg elementer fra 2D-snitt")
-
         geo = model.get("geometry", {})
         if not geo.get("soil_layers"):
-            st.warning("⚠️ Geometridata mangler. Gå tilbake til Nivå 1 og koble til Plaxis på nytt for å hente oppdatert modelldata.")
-        st.caption("Valgte elementer vises i rødt. Bruk avkrysningsboksene under snittet.")
+            st.warning("⚠️ Geometridata mangler. Koble til Plaxis på nytt for oppdatert modelldata.")
 
-        # Checkboxes for selection (above the plot for immediate feedback)
-        c_cols = st.columns(max(len(spunts) + len(anchors), 1))
-        idx = 0
-        for sp in spunts:
-            with c_cols[idx % len(c_cols)]:
-                mat_name = sp.get("material", {}).get("name", "")
-                checked = st.checkbox(
-                    f"🔩 {sp['name']}" + (f" ({mat_name})" if mat_name else ""),
-                    value=sp["name"] in st.session_state.plaxis_selected_spunts,
-                    key=f"cs_sp_{sp['name']}",
+        # Selection widgets in bordered containers
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.container(border=True):
+                st.markdown("🔩 **Spunter / Plater**")
+                spunt_opts = [s["name"] for s in spunts]
+                # Filter defaults to valid options only
+                spunt_defaults = [n for n in st.session_state.plaxis_selected_spunts if n in spunt_opts]
+                spunt_names = st.multiselect(
+                    "Velg spunt(er)",
+                    options=spunt_opts,
+                    default=spunt_defaults,
+                    key="cs_spunt_ms",
+                    label_visibility="collapsed",
                 )
-                if checked and sp["name"] not in st.session_state.plaxis_selected_spunts:
-                    st.session_state.plaxis_selected_spunts.append(sp["name"])
-                elif not checked and sp["name"] in st.session_state.plaxis_selected_spunts:
-                    st.session_state.plaxis_selected_spunts.remove(sp["name"])
-            idx += 1
-        for anc in anchors:
-            with c_cols[idx % len(c_cols)]:
-                mat_name = anc.get("material", {}).get("name", "")
-                checked = st.checkbox(
-                    f"⚓ {anc['name']}" + (f" ({mat_name})" if mat_name else ""),
-                    value=anc["name"] in st.session_state.plaxis_selected_anchors,
-                    key=f"cs_an_{anc['name']}",
-                )
-                if checked and anc["name"] not in st.session_state.plaxis_selected_anchors:
-                    st.session_state.plaxis_selected_anchors.append(anc["name"])
-                elif not checked and anc["name"] in st.session_state.plaxis_selected_anchors:
-                    st.session_state.plaxis_selected_anchors.remove(anc["name"])
-            idx += 1
+                st.session_state.plaxis_selected_spunts = spunt_names
+                if spunts:
+                    for s in spunts:
+                        mat = s.get("material", {}).get("name", "")
+                        sel = "🔴" if s["name"] in spunt_names else "⚪"
+                        length = s.get("length", "–")
+                        st.caption(f"{sel} {s['name']}  ·  {mat}  ·  L={length} m")
 
-        # Build and show cross-section figure
+        with c2:
+            with st.container(border=True):
+                st.markdown("⚓ **Ankere / Avstivninger**")
+                anchor_opts = [a["name"] for a in anchors]
+                anchor_defaults = [n for n in st.session_state.plaxis_selected_anchors if n in anchor_opts]
+                anchor_names = st.multiselect(
+                    "Velg ankere/avstivninger",
+                    options=anchor_opts,
+                    default=anchor_defaults,
+                    key="cs_anchor_ms",
+                    label_visibility="collapsed",
+                )
+                st.session_state.plaxis_selected_anchors = anchor_names
+                if anchors:
+                    for a in anchors:
+                        mat = a.get("material", {}).get("name", "")
+                        sel = "🟠" if a["name"] in anchor_names else "⚪"
+                        atype = "N2N" if a.get("type") == "node_to_node_anchor" else "FE"
+                        st.caption(f"{sel} {a['name']}  ·  {mat}  ·  {atype}")
+                if not anchors:
+                    st.caption("Ingen ankere i modellen")
+
+        # Cross-section figure with highlighted selections
         fig = _build_cross_section_figure(
             model,
             st.session_state.plaxis_selected_spunts,
             st.session_state.plaxis_selected_anchors,
         )
-        st.plotly_chart(fig, use_container_width=True)
-
-        spunt_names  = st.session_state.plaxis_selected_spunts
-        anchor_names = st.session_state.plaxis_selected_anchors
+        st.plotly_chart(fig, use_container_width=True, key="cs_plot")
 
     st.markdown("---")
     c1, c2 = st.columns(2)
