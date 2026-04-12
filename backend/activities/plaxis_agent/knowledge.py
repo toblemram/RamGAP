@@ -18,7 +18,7 @@ import re
 from typing import Dict, List, Optional
 
 # Sti til docs-mappen relativt til denne filen
-_DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "docs")
+_DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "docs")
 _COMMANDS_FILE = os.path.join(_DOCS_DIR, "plaxis_2d_commands.md")
 _REFERENCE_FILE = os.path.join(_DOCS_DIR, "plaxis_2d_reference.md")
 
@@ -26,6 +26,7 @@ _REFERENCE_FILE = os.path.join(_DOCS_DIR, "plaxis_2d_reference.md")
 # Cache i minnet for sesjonen
 # ---------------------------------------------------------------------------
 _command_index: Optional[Dict[str, str]] = None  # name -> section content
+_reference_index: Optional[Dict[str, str]] = None  # name -> reference section content
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +211,100 @@ def build_api_cards(docs: List[Dict], max_per_doc: int = 2000, max_total: int = 
 def ensure_loaded():
     """Verifiser at markdown-filen finnes og kan parses."""
     _build_command_index()
+    _build_reference_index()
+
+
+# ---------------------------------------------------------------------------
+# Reference-indeks: plaxis_2d_reference.md — kompakt referanse per kommando
+# ---------------------------------------------------------------------------
+
+def _parse_reference_md() -> Dict[str, str]:
+    """
+    Les plaxis_2d_reference.md og bygg mapping kommando-navn -> seksjon.
+
+    Filen har seksjoner som starter med:
+      ## g_i.kommando  eller  ## g_o.kommando  eller  ## kommando
+    """
+    path = os.path.normpath(_REFERENCE_FILE)
+    if not os.path.isfile(path):
+        return {}
+
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    # Match ## g_i.xxx, ## g_o.xxx, or ## xxx (command headers)
+    section_re = re.compile(
+        r'^## (?:g_[io]\.)?(\w+)',
+        re.MULTILINE,
+    )
+
+    matches = list(section_re.finditer(text))
+    index: Dict[str, str] = {}
+
+    for i, m in enumerate(matches):
+        name = m.group(1).strip().lower()
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        content = text[start:end].strip()
+        if name in index:
+            index[name] += "\n\n---\n\n" + content
+        else:
+            index[name] = content
+
+    return index
+
+
+def _build_reference_index() -> Dict[str, str]:
+    """Bygg (eller returner cachet) referanseindeks."""
+    global _reference_index
+    if _reference_index is not None:
+        return _reference_index
+    _reference_index = _parse_reference_md()
+    return _reference_index
+
+
+def retrieve_reference_for_code(code: str, max_cards: int = 6, max_total: int = 10000) -> str:
+    """
+    Ekstraher alle g.xxx() / g_i.xxx() / g_o.xxx() kall fra generert kode,
+    slå opp i plaxis_2d_reference.md, og returner relevante referansekort.
+
+    Brukes til å validere at generert kode følger riktig API-bruk.
+    """
+    ref_index = _build_reference_index()
+    if not ref_index:
+        return ""
+
+    # Finn alle metode-kall: g.xxx(, g_i.xxx(, g_o.xxx(, s.xxx(, s_i.xxx(, s_o.xxx(
+    call_re = re.compile(r'(?:g(?:_[io])?|s(?:_[io])?)\.(\w+)\s*\(')
+    # Finn også property-tilganger: g.Plates, g.Phases, g_o.ResultTypes.Plate.Nx2D
+    prop_re = re.compile(r'(?:g(?:_[io])?|s(?:_[io])?)\.(\w+)')
+
+    found_names = set()
+    for m in call_re.finditer(code):
+        found_names.add(m.group(1).lower())
+    for m in prop_re.finditer(code):
+        name = m.group(1).lower()
+        # Filtrér ut vanlige Python-innebygde og samlinger vi ikke trenger kort for
+        if name not in ('value', 'name', 'identification', 'parent', 'first', 'second',
+                         'material', 'active', 'number'):
+            found_names.add(name)
+
+    # Slå opp i referanse-indeksen
+    parts = []
+    total = 0
+    for name in sorted(found_names):
+        if name in ref_index:
+            card = f"### Referanse: `{name}`\n\n{ref_index[name]}"
+            if len(card) > 2000:
+                card = card[:2000] + "\n… (avkortet)"
+            if total + len(card) > max_total:
+                break
+            parts.append(card)
+            total += len(card)
+            if len(parts) >= max_cards:
+                break
+
+    return "\n\n---\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------

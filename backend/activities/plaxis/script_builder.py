@@ -966,6 +966,374 @@ print(json.dumps(result))"""
 # Agent scripts (GAPI)
 # ---------------------------------------------------------------------------
 
+
+def build_snapshot_script(
+    host: str,
+    port: int,
+    password: str,
+    output_port: Optional[int] = None,
+    output_password: Optional[str] = None,
+) -> str:
+    """
+    Comprehensive model snapshot: project info, geometry, materials (with params),
+    structures with phase activation, loads, mesh status, phase results.
+    Returns a rich JSON dict for use as model_info in the AI pipeline.
+    """
+    out_port = output_port or (port + 1)
+    out_pwd  = output_password or password
+
+    body = f"""\
+s_i, g_i = new_server({host!r}, {port}, password={password!r})
+
+snap = {{
+    'project': {{}},
+    'geometry': {{}},
+    'materials': {{}},
+    'structures': {{}},
+    'loads': {{}},
+    'phases': [],
+    'mesh': {{}},
+    'results': {{}},
+}}
+
+# ── Project info ──────────────────────────────────────────────────────────
+def _v(o):
+    return o.value if hasattr(o, 'value') else str(o) if o is not None else None
+
+try:
+    p = g_i.Project
+    snap['project'] = {{
+        'name':        _v(p.Name),
+        'title':       _v(p.Title)       if hasattr(p, 'Title')       else None,
+        'description': _v(p.Description) if hasattr(p, 'Description') else None,
+        'company':     _v(p.Company)     if hasattr(p, 'Company')     else None,
+        'filename':    _v(p.Filename)    if hasattr(p, 'Filename')    else None,
+    }}
+except Exception as _e:
+    snap['project']['error'] = str(_e)
+
+# ── Geometry ──────────────────────────────────────────────────────────────
+try:
+    g_i.gotosoil()
+    # SoilContour bounds — iterate points to compute min/max
+    try:
+        sc = g_i.SoilContour
+        pts = list(sc)
+        if pts:
+            xs = [_v(p.x) for p in pts]
+            ys = [_v(p.y) for p in pts]
+            snap['geometry']['xmin'] = min(xs)
+            snap['geometry']['xmax'] = max(xs)
+            snap['geometry']['ymin'] = min(ys)
+            snap['geometry']['ymax'] = max(ys)
+    except: pass
+
+    # Collect global SoilLayers (not per-borehole)
+    _all_layers = {{}}  # borehole_str -> list of layers
+    try:
+        for sl in g_i.SoilLayers:
+            layer = {{'top': None, 'bottom': None, 'material': None}}
+            try:
+                t = _v(sl.Top)
+                layer['top'] = t[0] if isinstance(t, list) and t else t
+            except: pass
+            try:
+                b = _v(sl.Bottom)
+                layer['bottom'] = b[0] if isinstance(b, list) and b else b
+            except: pass
+            try:
+                layer['material'] = _v(sl.Soil.Material.Identification)
+            except: pass
+            # Map to borehole(s)
+            try:
+                bh_list = _v(sl.Borehole)
+                if not isinstance(bh_list, list):
+                    bh_list = [bh_list]
+                for bh_ref in bh_list:
+                    bh_id = str(bh_ref)
+                    _all_layers.setdefault(bh_id, []).append(layer)
+            except: pass
+    except: pass
+
+    boreholes = []
+    for bh in g_i.Boreholes:
+        bh_id = str(bh)
+        bh_data = {{
+            'x': _v(bh.x),
+            'head': _v(bh.Head) if hasattr(bh, 'Head') else None,
+            'layers': _all_layers.get(bh_id, []),
+        }}
+        boreholes.append(bh_data)
+    snap['geometry']['boreholes'] = boreholes
+except Exception as _e:
+    snap['geometry']['error'] = str(_e)
+
+# ── Materials ─────────────────────────────────────────────────────────────
+_SOIL_PARAMS  = ['gammaUnsat','gammaSat','SoilModel','Gref','Eref','E50ref','EoedRef',
+                 'EurRef','cRef','phi','su','sURef','SuRef','K0nc','K0x','nu','Rinter',
+                 'OCR','POP','einit','Vs','Gref','m']
+_PLATE_PARAMS = ['EA1','EA2','EI','d','w','nu','PreventPunching','Isotropic']
+_ANCHOR_PARAMS = ['EA','Lspacing','l','PreStress']
+_BEAM_PARAMS   = ['AxialSkinResistance','LateralSkinResistance','BaseResistance',
+                  'Diameter','UnitWeight','E','Efact']
+
+def _safe_params(mat, param_list):
+    out = {{}}
+    for p in param_list:
+        if hasattr(mat, p):
+            try:
+                out[p] = _v(getattr(mat, p))
+            except: pass
+    return out
+
+def _mat_type(mat):
+    for attr in ('TypeName','MaterialType','_plx_type'):
+        if hasattr(mat, attr):
+            t = str(_v(getattr(mat, attr))).lower()
+            if 'soil'   in t: return 'soil'
+            if 'plate'  in t: return 'plate'
+            if 'anchor' in t: return 'anchor'
+            if 'beam'   in t or 'pile' in t or 'embedded' in t: return 'embedded_beam'
+    return 'unknown'
+
+try:
+    g_i.gotostructures()
+    for mat in g_i.Materials:
+        try:
+            name = _v(mat.Identification) if hasattr(mat,'Identification') else _v(mat.Name)
+            mt = _mat_type(mat)
+            params = _safe_params(mat, {{
+                'soil':          _SOIL_PARAMS,
+                'plate':         _PLATE_PARAMS,
+                'anchor':        _ANCHOR_PARAMS,
+                'embedded_beam': _BEAM_PARAMS,
+            }}.get(mt, []))
+            snap['materials'][name] = {{'type': mt, 'params': params}}
+        except: pass
+except Exception as _e:
+    snap['materials']['_error'] = str(_e)
+
+# ── Structures ────────────────────────────────────────────────────────────
+def _coords_line(obj):
+    try:
+        x1 = _v(obj.Parent.First.x);  y1 = _v(obj.Parent.First.y)
+        x2 = _v(obj.Parent.Second.x); y2 = _v(obj.Parent.Second.y)
+        return x1, y1, x2, y2, round(((x2-x1)**2+(y2-y1)**2)**0.5, 2)
+    except: return None,None,None,None,None
+
+def _mat_name(obj):
+    # Material on a structural element can be:
+    # 1. obj.Material.Identification.value  (direct property)
+    # 2. obj.Material.value.Identification.value  (wrapped reference)
+    try:
+        m = obj.Material
+        # If .value gives us the actual material object
+        if hasattr(m, 'value') and hasattr(m.value, 'Identification'):
+            return _v(m.value.Identification)
+        for id_attr in ('Identification', 'Name'):
+            if hasattr(m, id_attr):
+                return _v(getattr(m, id_attr))
+    except: pass
+    return None
+
+def _active_phases(obj):
+    active = []
+    try:
+        g_i.gotostages()
+        for ph in g_i.Phases:
+            try:
+                act = obj.Active[ph]
+                # Could be a bool wrapper or direct bool
+                val = act.value if hasattr(act, 'value') else bool(act)
+                if val:
+                    active.append(_v(ph.Identification))
+            except: pass
+    except: pass
+    return active
+
+try:
+    g_i.gotostructures()
+
+    # Plates
+    plates = []
+    for obj in (g_i.Plates if hasattr(g_i,'Plates') else []):
+        try:
+            x1,y1,x2,y2,ln = _coords_line(obj)
+            plates.append({{
+                'name': _v(obj.Name), 'x1':x1,'y1':y1,'x2':x2,'y2':y2,'length':ln,
+                'material': _mat_name(obj), 'active_phases': _active_phases(obj),
+            }})
+        except: pass
+    snap['structures']['plates'] = plates
+
+    # Embedded beams
+    beams = []
+    for obj in (g_i.EmbeddedBeamRows if hasattr(g_i,'EmbeddedBeamRows') else []):
+        try:
+            x1,y1,x2,y2,ln = _coords_line(obj)
+            beams.append({{
+                'name': _v(obj.Name), 'x1':x1,'y1':y1,'x2':x2,'y2':y2,'length':ln,
+                'material': _mat_name(obj), 'active_phases': _active_phases(obj),
+            }})
+        except: pass
+    snap['structures']['embedded_beams'] = beams
+
+    # N2N anchors
+    n2n = []
+    for obj in (g_i.NodeToNodeAnchors if hasattr(g_i,'NodeToNodeAnchors') else []):
+        try:
+            x1,y1,x2,y2,ln = _coords_line(obj)
+            n2n.append({{
+                'name': _v(obj.Name), 'x1':x1,'y1':y1,'x2':x2,'y2':y2,'length':ln,
+                'material': _mat_name(obj), 'active_phases': _active_phases(obj),
+            }})
+        except: pass
+    snap['structures']['n2n_anchors'] = n2n
+
+    # Fixed end anchors
+    fea = []
+    for obj in (g_i.FixedEndAnchors if hasattr(g_i,'FixedEndAnchors') else []):
+        try:
+            x = _v(obj.Parent.x); y = _v(obj.Parent.y)
+            fea.append({{
+                'name': _v(obj.Name), 'x':x,'y':y,
+                'material': _mat_name(obj), 'active_phases': _active_phases(obj),
+            }})
+        except: pass
+    snap['structures']['fixed_end_anchors'] = fea
+
+    # Geogrids
+    gg = []
+    for obj in (g_i.Geogrids if hasattr(g_i,'Geogrids') else []):
+        try:
+            x1,y1,x2,y2,ln = _coords_line(obj)
+            gg.append({{
+                'name': _v(obj.Name), 'x1':x1,'y1':y1,'x2':x2,'y2':y2,'length':ln,
+                'material': _mat_name(obj), 'active_phases': _active_phases(obj),
+            }})
+        except: pass
+    snap['structures']['geogrids'] = gg
+
+except Exception as _e:
+    snap['structures']['_error'] = str(_e)
+
+# ── Loads ─────────────────────────────────────────────────────────────────
+def _load_in_phases(obj, props):
+    result = []
+    try:
+        g_i.gotostages()
+        for ph in g_i.Phases:
+            try:
+                if not _v(obj.Active[ph]): continue
+                pd = {{'phase': _v(ph.Identification)}}
+                for p in props:
+                    if hasattr(obj, p):
+                        try: pd[p] = _v(getattr(obj,p)[ph])
+                        except: pass
+                result.append(pd)
+            except: pass
+    except: pass
+    return result
+
+try:
+    g_i.gotostructures()
+
+    line_loads = []
+    for obj in (g_i.LineLoads if hasattr(g_i,'LineLoads') else []):
+        try:
+            x1,y1,x2,y2,ln = _coords_line(obj)
+            line_loads.append({{
+                'name': _v(obj.Name), 'x1':x1,'y1':y1,'x2':x2,'y2':y2,
+                'phases': _load_in_phases(obj, ['qx_start','qy_start','qx_end','qy_end']),
+            }})
+        except: pass
+    snap['loads']['line_loads'] = line_loads
+
+    point_loads = []
+    for obj in (g_i.PointLoads if hasattr(g_i,'PointLoads') else []):
+        try:
+            x = _v(obj.Parent.x); y = _v(obj.Parent.y)
+            point_loads.append({{
+                'name': _v(obj.Name), 'x':x,'y':y,
+                'phases': _load_in_phases(obj, ['Fx','Fy','Fz']),
+            }})
+        except: pass
+    snap['loads']['point_loads'] = point_loads
+
+except Exception as _e:
+    snap['loads']['_error'] = str(_e)
+
+# ── Phases ────────────────────────────────────────────────────────────────
+try:
+    g_i.gotostages()
+    for ph in g_i.Phases:
+        ph_data = {{
+            'number':    _v(ph.Number),
+            'name':      _v(ph.Identification),
+            'previous':  None,
+            'calc_type': None,
+            'status':    None,
+        }}
+        try: ph_data['previous'] = _v(ph.PreviousPhase.Identification)
+        except: pass
+        try: ph_data['calc_type'] = str(ph.DeformCalcType)
+        except: pass
+        try: ph_data['status'] = str(ph.CalculationStatus)
+        except:
+            try: ph_data['status'] = str(ph.Status)
+            except: pass
+        snap['phases'].append(ph_data)
+except Exception as _e:
+    snap['phases'] = [{{'error': str(_e)}}]
+
+# ── Mesh ──────────────────────────────────────────────────────────────────
+try:
+    g_i.gotomesh()
+    mesh_data = {{}}
+    # PLAXIS mesh info is not directly queryable via attributes.
+    # Just note that mesh mode is accessible; users can call g_i.mesh() to generate.
+    snap['mesh'] = mesh_data
+except Exception as _e:
+    snap['mesh'] = {{'error': str(_e)}}
+
+# ── Output results (only if phases have been calculated) ──────────────────
+try:
+    _s_o, g_o = new_server({host!r}, {out_port}, password={out_pwd!r})
+    out_results = {{}}
+
+    for ph in g_o.Phases:
+        pn = _v(ph.Identification)
+        # Skip phases that have not been calculated
+        try:
+            status = str(_v(ph.ShouldCalculate))
+            if status == 'False':
+                continue
+        except: pass
+        pd = {{}}
+        try:
+            rt_soil = g_o.ResultTypes.Soil
+            for comp, attr_candidates in [
+                ('ux_max', ['Ux','Ux2D']),
+                ('uy_max', ['Uy','Uy2D']),
+                ('utot_max', ['Utot','Utot2D']),
+            ]:
+                for attr in attr_candidates:
+                    if hasattr(rt_soil, attr):
+                        try:
+                            vals = g_o.getresults(ph, getattr(rt_soil, attr), 'node')
+                            if vals and hasattr(vals, '__iter__'):
+                                pd[comp] = round(max(abs(float(v)) for v in vals), 4)
+                            break
+                        except: pass
+        except: pass
+        if pd: out_results[pn] = pd
+
+    snap['results'] = out_results
+except: pass
+
+print(json.dumps({{'success': True, 'snapshot': snap}}))"""
+    return _wrap(body)
+
 def build_agent_test_script(host: str, port: int, password: str) -> str:
     """Script that tests the Plaxis connection and returns project name."""
     body = f"""\
@@ -1007,7 +1375,7 @@ s, g = new_server({host!r}, {port}, password={password!r})
 s_o, g_o = new_server({host!r}, {out_port}, password={out_pwd!r})
 
 _code = base64.b64decode('{encoded}').decode('utf-8')
-_namespace = {{'g': g, 's': s, 'g_o': g_o, 's_o': s_o}}
+_namespace = {{'g': g, 's': s, 'g_i': g, 's_i': s, 'g_o': g_o, 's_o': s_o}}
 _buf = io.StringIO()
 
 try:

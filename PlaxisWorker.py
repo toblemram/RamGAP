@@ -71,7 +71,7 @@ def run_job(plaxis_python: str, code: str) -> dict:
             f.write(code)
         proc = subprocess.run(
             [plaxis_python, path],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, timeout=7200,
         )
         stdout = proc.stdout.strip()
         if not stdout:

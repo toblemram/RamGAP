@@ -406,7 +406,49 @@ class APIClient:
             'session_id': session_id,
             'output_port': output_port,
             'output_password': output_password,
-        }, timeout=15)
+        }, timeout=120)
+
+    def plaxis_agent_observer(self, session_id: str = 'default') -> dict:
+        return self._get(f'/api/plaxis-agent/observer?session_id={session_id}', timeout=10)
+
+    def plaxis_agent_plan(self, message: str, session_id: str = 'default',
+                          username: str = 'default', history: list = None,
+                          pdf_text: str = None, selected_context: list = None) -> dict:
+        """Step 0+1: gather context and create a structured plan."""
+        return self._post('/api/plaxis-agent/plan', {
+            'message': message,
+            'session_id': session_id,
+            'username': username,
+            'history': history,
+            'pdf_text': pdf_text,
+            'selected_context': selected_context,
+        }, timeout=60)
+
+    def plaxis_agent_execute_plan(self, session_id: str = 'default',
+                                  username: str = 'default', history: list = None,
+                                  pdf_text: str = None, selected_context: list = None,
+                                  max_retries: int = 2) -> dict:
+        """Step 3+4+5+6: generate code, validate, execute, update learnings."""
+        return self._post('/api/plaxis-agent/execute-plan', {
+            'session_id': session_id,
+            'username': username,
+            'history': history,
+            'pdf_text': pdf_text,
+            'selected_context': selected_context,
+            'max_retries': max_retries,
+        }, timeout=7200)
+
+    def plaxis_agent_get_learnings(self, scope: str = 'global',
+                                   scope_key: str = None) -> dict:
+        params = {'scope': scope}
+        if scope_key:
+            params['scope_key'] = scope_key
+        return self._get('/api/plaxis-agent/learnings/latest', params=params, timeout=10)
+
+    def plaxis_agent_snapshot(self, session_id: str = 'default') -> dict:
+        """Run a comprehensive model snapshot and return model_info."""
+        return self._post('/api/plaxis-agent/snapshot',
+                          {'session_id': session_id}, timeout=90)
 
     # ------------------------------------------------------------------
     # Standarder

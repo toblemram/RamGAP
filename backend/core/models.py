@@ -526,3 +526,47 @@ class QuizScore(Base):
             'max_streak': self.max_streak,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+# ---------------------------------------------------------------------------
+# GAPI learnings — persistent learning log for the Plaxis AI agent
+# ---------------------------------------------------------------------------
+
+class GapiLearning(Base):
+    """
+    A learning entry from the GAPI observer AI.
+
+    Each row is one version of the learning .md file, capturing insights
+    from a completed (or failed) agent session. The latest entry per
+    scope is loaded as context for future sessions.
+
+    Scopes:
+      - 'global'   — general PLAXIS scripting learnings
+      - 'project'  — project-specific observations
+      - 'user'     — per-user patterns & preferences
+    """
+    __tablename__ = 'gapi_learnings'
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    scope      = Column(String(50), nullable=False, default='global')
+    scope_key  = Column(String(255), nullable=True)   # project_id or username
+    session_id = Column(String(255), nullable=True)    # agent session that produced this
+    title      = Column(String(500), nullable=True)
+    content    = Column(Text, nullable=False)           # markdown content
+    username   = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            'id':         self.id,
+            'scope':      self.scope,
+            'scope_key':  self.scope_key,
+            'session_id': self.session_id,
+            'title':      self.title,
+            'content':    self.content,
+            'username':   self.username,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
