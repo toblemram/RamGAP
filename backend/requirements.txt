@@ -1,0 +1,11 @@
+flask
+flask-cors
+flasgger
+python-dotenv
+sqlalchemy
+psycopg2-binary
+openai
+azure-storage-blob
+azure-search-documents
+openpyxl
+plxscripting
