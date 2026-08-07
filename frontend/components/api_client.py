@@ -16,6 +16,7 @@ import requests
 from typing import Any, Dict, List, Optional
 
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:5050')
+PLAXIS_AI_TIMEOUT = int(os.getenv('PLAXIS_AI_TIMEOUT', '180'))
 
 
 class APIClient:
@@ -178,10 +179,10 @@ class APIClient:
         return self._get(f'/api/plaxis/jobs/{job_id}', timeout=10)
 
     def plaxis_ai_quality_check(self, model_data: dict) -> dict:
-        return self._post('/api/plaxis/ai-quality-check', {'model_data': model_data}, timeout=60)
+        return self._post('/api/plaxis/ai-quality-check', {'model_data': model_data}, timeout=PLAXIS_AI_TIMEOUT)
 
     def plaxis_ai_report(self, payload: dict) -> dict:
-        return self._post('/api/plaxis/ai-report', payload, timeout=60)
+        return self._post('/api/plaxis/ai-report', payload, timeout=PLAXIS_AI_TIMEOUT)
 
     def get_plaxis_calculations(self, project_id: Optional[int] = None,
                                  limit: int = 10) -> List[dict]:
