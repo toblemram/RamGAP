@@ -278,7 +278,7 @@ def connect():
                     output_port=output_port, output_password=output_password or password,
                 )
                 snap_result = _submit_and_wait(snap_code, session_id,
-                                               job_type="agent_snapshot", timeout=90)
+                                               job_type="agent_snapshot", timeout=180)
                 if snap_result.get("success") and snap_result.get("snapshot"):
                     _agent_sessions[session_id]["model_info"] = snap_result["snapshot"]
             except Exception as _e:
@@ -343,7 +343,7 @@ def snapshot():
             output_password=sess.get("output_password"),
         )
         result = _submit_and_wait(snap_code, session_id,
-                                  job_type="agent_snapshot", timeout=90)
+                                  job_type="agent_snapshot", timeout=180)
         if result.get("success") and result.get("snapshot"):
             _agent_sessions[session_id]["model_info"] = result["snapshot"]
             return jsonify({"success": True, "snapshot": result["snapshot"]})

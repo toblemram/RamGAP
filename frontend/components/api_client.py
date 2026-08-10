@@ -449,7 +449,7 @@ class APIClient:
     def plaxis_agent_snapshot(self, session_id: str = 'default') -> dict:
         """Run a comprehensive model snapshot and return model_info."""
         return self._post('/api/plaxis-agent/snapshot',
-                          {'session_id': session_id}, timeout=90)
+                          {'session_id': session_id}, timeout=180)
 
     # ------------------------------------------------------------------
     # Standarder

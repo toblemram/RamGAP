@@ -18,7 +18,7 @@ import re
 from typing import Dict, List, Optional
 
 # Sti til docs-mappen relativt til denne filen
-_DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "docs")
+_DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "docs")
 _COMMANDS_FILE = os.path.join(_DOCS_DIR, "plaxis_2d_commands.md")
 _REFERENCE_FILE = os.path.join(_DOCS_DIR, "plaxis_2d_reference.md")
 
