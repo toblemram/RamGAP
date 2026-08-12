@@ -72,8 +72,7 @@ if not st.session_state.pa_connected:
                         )
                     if res.get("success"):
                         st.session_state.pa_connected = True
-                        if res.get("model_info") and res["model_info"].get("geometry"):
-                            st.session_state.pa_model_info = res["model_info"]
+                        st.session_state.pa_model_info = res.get("model_info") or {}
                         st.rerun()
                     else:
                         st.error(res.get("error", "Tilkobling feilet"))
