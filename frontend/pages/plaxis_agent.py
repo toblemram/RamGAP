@@ -40,6 +40,7 @@ _defaults = {
     "pa_last_message":  "",
     # Model snapshot
     "pa_model_info":    None,     # cached snapshot from /snapshot endpoint
+    "pa_snapshot_pending": False,
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -72,7 +73,12 @@ if not st.session_state.pa_connected:
                         )
                     if res.get("success"):
                         st.session_state.pa_connected = True
-                        st.session_state.pa_model_info = res.get("model_info") or {}
+                        if res.get("model_info"):
+                            st.session_state.pa_model_info = res["model_info"]
+                            st.session_state.pa_snapshot_pending = False
+                        else:
+                            st.session_state.pa_model_info = None
+                            st.session_state.pa_snapshot_pending = bool(res.get("pending", True))
                         st.rerun()
                     else:
                         st.error(res.get("error", "Tilkobling feilet"))
@@ -87,7 +93,7 @@ with st.sidebar:
     st.success("✅ PLAXIS tilkoblet")
     if st.button("🔌 Koble fra", use_container_width=True):
         for k in ["pa_connected", "pa_messages",
-                  "pa_stage", "pa_pending_plan", "pa_context_summary", "pa_model_info"]:
+                  "pa_stage", "pa_pending_plan", "pa_context_summary", "pa_model_info", "pa_snapshot_pending"]:
             st.session_state[k] = _defaults.get(k, None if k != "pa_stage" else "idle")
         st.rerun()
 
@@ -160,17 +166,23 @@ with st.sidebar:
             snap_res = api.plaxis_agent_snapshot(session_id=st.session_state.pa_session_id)
         if snap_res.get("success") and snap_res.get("snapshot"):
             st.session_state.pa_model_info = snap_res["snapshot"]
+            st.session_state.pa_snapshot_pending = bool(snap_res.get("pending", False))
             st.rerun()
+        elif snap_res.get("success") and snap_res.get("pending"):
+            st.session_state.pa_snapshot_pending = True
         else:
             st.error(snap_res.get("error", "Snapshot feilet"))
 
     # Auto-fetch snapshot if not loaded yet
-    if st.session_state.pa_model_info is None:
+    if st.session_state.pa_model_info is None and not st.session_state.pa_snapshot_pending:
         with st.spinner("Laster modellinfo…"):
             snap_res = api.plaxis_agent_snapshot(session_id=st.session_state.pa_session_id)
         if snap_res.get("success") and snap_res.get("snapshot"):
             st.session_state.pa_model_info = snap_res["snapshot"]
+            st.session_state.pa_snapshot_pending = bool(snap_res.get("pending", False))
             st.rerun()
+        elif snap_res.get("success") and snap_res.get("pending"):
+            st.session_state.pa_snapshot_pending = True
 
     st.divider()
     st.markdown("### 📄 Last opp dokument")

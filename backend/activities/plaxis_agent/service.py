@@ -824,8 +824,34 @@ def run_pipeline_execute(
 
     # Step 3: generate
     gen = generate_code_from_plan(user_message, plan, context, history=history)
-    code = gen["code"]
+    code = (gen["code"] or "").strip()
     docs_used = gen.get("docs_used", [])
+
+    if not code:
+        retry_history = list(history or [])
+        retry_history.append({"role": "assistant", "content": ""})
+        retry_history.append({
+            "role": "user",
+            "content": (
+                "Forrige svar inneholdt ingen kjørbar Python-kode. "
+                "Returner nå KUN ren Python-kode som kan kjøres i PLAXIS. "
+                "Ingen forklaring, ingen markdown, ingen tomme linjer før koden."
+            ),
+        })
+        gen = generate_code_from_plan(user_message, plan, context, history=retry_history)
+        code = (gen["code"] or "").strip()
+        if not code:
+            return {
+                "code": "",
+                "original_code": None,
+                "output": "",
+                "success": False,
+                "error": "LLM returnerte ingen kjørbar kode.",
+                "verdict": {"status": "error", "matched": False, "forklaring": "Tom kode fra LLM", "mangler": [], "retry_hint": "Be modellen svare med kun Python-kode."},
+                "docs_used": docs_used,
+                "attempts": 1,
+                "steps": len(plan.get("steg", [])),
+            }
 
     # Step 4: validate
     validated_code = validate_code(code)

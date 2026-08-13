@@ -35,6 +35,7 @@ GET  /api/plaxis-agent/observer
 import json
 import time
 import traceback
+import threading
 
 from flask import Blueprint, jsonify, request
 
@@ -62,10 +63,42 @@ plaxis_agent_bp = Blueprint("plaxis_agent", __name__, url_prefix="/api/plaxis-ag
 # ---------------------------------------------------------------------------
 _agent_sessions: dict = {}   # session_id -> {host, port, password, ...}
 _pending_plans:  dict = {}   # session_id -> {plan, context, user_message, username}
+_snapshot_inflight: set[str] = set()
+_snapshot_lock = threading.Lock()
 
 
 def _get_session(session_id: str) -> dict | None:
     return _agent_sessions.get(session_id)
+
+
+def _start_snapshot_background(session_id: str, sess: dict) -> bool:
+    """Kick off a background snapshot unless one is already running."""
+    with _snapshot_lock:
+        if session_id in _snapshot_inflight:
+            return False
+        _snapshot_inflight.add(session_id)
+
+    def _bg_snapshot():
+        try:
+            snap_code = build_snapshot_script(
+                host=sess["host"],
+                port=sess["port"],
+                password=sess["password"],
+                output_port=sess.get("output_port"),
+                output_password=sess.get("output_password"),
+            )
+            snap_result = _submit_and_wait(snap_code, session_id,
+                                           job_type="agent_snapshot", timeout=180)
+            if snap_result.get("success") and snap_result.get("snapshot"):
+                _agent_sessions[session_id]["model_info"] = snap_result["snapshot"]
+        except Exception as _e:
+            print(f"Background snapshot error: {_e}")
+        finally:
+            with _snapshot_lock:
+                _snapshot_inflight.discard(session_id)
+
+    threading.Thread(target=_bg_snapshot, daemon=True).start()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -267,24 +300,7 @@ def connect():
             "output_password": output_password or password,
         }
         _agent_sessions[session_id] = session_params
-
-        # Run snapshot in background thread so connect returns immediately
-        import threading
-
-        def _bg_snapshot():
-            try:
-                snap_code = build_snapshot_script(
-                    host=host, port=port, password=password,
-                    output_port=output_port, output_password=output_password or password,
-                )
-                snap_result = _submit_and_wait(snap_code, session_id,
-                                               job_type="agent_snapshot", timeout=180)
-                if snap_result.get("success") and snap_result.get("snapshot"):
-                    _agent_sessions[session_id]["model_info"] = snap_result["snapshot"]
-            except Exception as _e:
-                print(f"Background snapshot error: {_e}")
-
-        threading.Thread(target=_bg_snapshot, daemon=True).start()
+        _start_snapshot_background(session_id, session_params)
 
         project = result.get("project", "")
         return jsonify({
@@ -292,6 +308,7 @@ def connect():
             "message": f"Tilkoblet PLAXIS på port {port}"
                        + (f" — prosjekt: {project}" if project else ""),
             "model_info": {},
+            "pending": True,
         })
     else:
         error = result.get("error", "Tilkobling feilet")
@@ -335,21 +352,13 @@ def snapshot():
         return jsonify({"error": "Ingen aktiv sesjon. Koble til PLAXIS først."}), 400
 
     try:
-        snap_code = build_snapshot_script(
-            host=sess["host"],
-            port=sess["port"],
-            password=sess["password"],
-            output_port=sess.get("output_port"),
-            output_password=sess.get("output_password"),
-        )
-        result = _submit_and_wait(snap_code, session_id,
-                                  job_type="agent_snapshot", timeout=180)
-        if result.get("success") and result.get("snapshot"):
-            _agent_sessions[session_id]["model_info"] = result["snapshot"]
-            return jsonify({"success": True, "snapshot": result["snapshot"]})
-        else:
-            return jsonify({"success": False,
-                            "error": result.get("error", "Snapshot feilet")}), 500
+        _start_snapshot_background(session_id, sess)
+        current_snapshot = sess.get("model_info") or {}
+        return jsonify({
+            "success": True,
+            "pending": True,
+            "snapshot": current_snapshot,
+        })
     except Exception as exc:
         traceback.print_exc()
         return jsonify({"error": str(exc)}), 500
